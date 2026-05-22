@@ -29,7 +29,7 @@ Desde la raiz del proyecto:
 ```bash
 git init
 git add .
-git commit -m "Initial Campus Room app"
+git commit -m "Initial Conectate Live app"
 git branch -M main
 git remote add origin https://github.com/Alvaro-mendoza-12/Conectate-Live.git
 git push -u origin main
@@ -59,8 +59,8 @@ git log --oneline --decorate --all --max-count=12
 
 ```bash
 cd ~
-git clone https://github.com/Alvaro-mendoza-12/Conectate-Live.git campus-room
-cd campus-room
+git clone https://github.com/Alvaro-mendoza-12/Conectate-Live.git conectate-live
+cd conectate-live
 chmod +x install.sh start.sh start-backend.sh start-frontend.sh
 bash ./install.sh
 ./start.sh
@@ -68,4 +68,3 @@ bash ./install.sh
 
 El instalador crea `backend/.env` y `frontend/.env` a partir de ejemplos si no
 existen. Edita esos archivos locales, no los ejemplos versionados.
-

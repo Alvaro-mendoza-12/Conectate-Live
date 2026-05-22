@@ -5,10 +5,19 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import {
   addUser,
+  addJoinRequest,
+  closeRoom,
+  createRoom,
+  getJoinRequest,
+  getRoomJoinRequests,
+  getRoomOwner,
   getRoomStats,
   getRoomUsers,
   getUser,
+  isRoomOwner,
+  removeJoinRequest,
   removeUser,
+  roomExists,
   shareRoom
 } from "./roomStore.js";
 import {
@@ -28,6 +37,7 @@ const configuredOrigins = String(
   .map((origin) => origin.trim())
   .filter(Boolean);
 const logLevel = String(process.env.LOG_LEVEL || "info").toLowerCase();
+const trustProxy = process.env.TRUST_PROXY === "1" ? 1 : false;
 const logPriorities = {
   error: 0,
   warn: 1,
@@ -36,6 +46,8 @@ const logPriorities = {
 };
 const chatWindowMs = 8_000;
 const maxChatMessagesPerWindow = 6;
+const lobbyWindowMs = 12_000;
+const maxLobbyActionsPerWindow = 8;
 
 function log(level, event, details = {}) {
   const priority = logPriorities[level] ?? logPriorities.info;
@@ -83,20 +95,45 @@ function systemMessage(text) {
   };
 }
 
-function allowChatMessage(socket) {
+function allowSocketAction(socket, key, windowMs, limit) {
   const now = Date.now();
-  const recentMessages = (socket.data.chatTimes ?? []).filter(
-    (timestamp) => now - timestamp < chatWindowMs
+  const windows = socket.data.rateWindows ?? {};
+  const recentActions = (windows[key] ?? []).filter(
+    (timestamp) => now - timestamp < windowMs
   );
 
-  if (recentMessages.length >= maxChatMessagesPerWindow) {
-    socket.data.chatTimes = recentMessages;
+  if (recentActions.length >= limit) {
+    socket.data.rateWindows = {
+      ...windows,
+      [key]: recentActions
+    };
     return false;
   }
 
-  recentMessages.push(now);
-  socket.data.chatTimes = recentMessages;
+  recentActions.push(now);
+  socket.data.rateWindows = {
+    ...windows,
+    [key]: recentActions
+  };
   return true;
+}
+
+function allowChatMessage(socket) {
+  return allowSocketAction(
+    socket,
+    "chat",
+    chatWindowMs,
+    maxChatMessagesPerWindow
+  );
+}
+
+function allowLobbyAction(socket) {
+  return allowSocketAction(
+    socket,
+    "lobby",
+    lobbyWindowMs,
+    maxLobbyActionsPerWindow
+  );
 }
 
 const app = express();
@@ -111,12 +148,19 @@ const io = new Server(httpServer, {
 });
 
 app.disable("x-powered-by");
+app.set("trust proxy", trustProxy);
 app.use(cors({ origin: allowOrigin }));
 app.use(express.json({ limit: "16kb" }));
+app.use((_request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
 
 app.get("/", (_request, response) => {
   response.json({
-    name: "campus-room-backend",
+    name: "conectate-live-backend",
     status: "ok"
   });
 });
@@ -134,7 +178,84 @@ function broadcastUsers(roomId) {
   io.to(roomId).emit("room-users", getRoomUsers(roomId));
 }
 
+function publicRoomPayload(user, roomId) {
+  return {
+    roomId,
+    self: {
+      id: user.id,
+      username: user.username,
+      joinedAt: user.joinedAt,
+      role: user.role
+    },
+    users: getRoomUsers(roomId)
+  };
+}
+
+function broadcastJoinRequests(roomId) {
+  const owner = getRoomOwner(roomId);
+
+  if (owner) {
+    io.to(owner.id).emit("join-requests", getRoomJoinRequests(roomId));
+  }
+}
+
+function removePendingRequest(socket, reason) {
+  const request = removeJoinRequest(socket.id);
+
+  if (!request) {
+    return;
+  }
+
+  socket.data.pendingRoomId = null;
+  broadcastJoinRequests(request.roomId);
+  log("info", "join_request_removed", {
+    reason,
+    roomId: request.roomId,
+    socketId: socket.id,
+    username: request.username,
+    ...getRoomStats()
+  });
+}
+
+function admitSocketToRoom(socket, roomId, username, role = "guest") {
+  const user = {
+    id: socket.id,
+    username,
+    roomId,
+    role,
+    joinedAt: new Date().toISOString()
+  };
+
+  socket.join(roomId);
+  socket.data.roomId = roomId;
+  socket.data.username = username;
+  socket.data.pendingRoomId = null;
+
+  const publicUser = addUser(user);
+
+  socket.to(roomId).emit("peer-joined", publicUser);
+  io.to(roomId).emit(
+    "system-message",
+    systemMessage(`${publicUser.username} entro a la reunion.`)
+  );
+  broadcastUsers(roomId);
+
+  log("info", "room_joined", {
+    roomId,
+    socketId: user.id,
+    username: user.username,
+    role: publicUser.role,
+    roomUsers: getRoomUsers(roomId).length,
+    ...getRoomStats()
+  });
+
+  return publicRoomPayload(publicUser, roomId);
+}
+
 function leaveCurrentRoom(socket, reason = "leave-room") {
+  const currentUser = getUser(socket.id);
+  const pendingRequests =
+    currentUser?.role === "owner" ? getRoomJoinRequests(currentUser.roomId) : [];
   const user = removeUser(socket.id);
 
   if (!user) {
@@ -148,9 +269,33 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
   socket.to(user.roomId).emit("peer-left", { id: user.id });
   socket.to(user.roomId).emit(
     "system-message",
-    systemMessage(`${user.username} salio de la sala.`)
+    systemMessage(`${user.username} salio de la reunion.`)
   );
   broadcastUsers(user.roomId);
+
+  const nextOwner = getRoomOwner(user.roomId);
+
+  if (user.role === "owner" && nextOwner) {
+    io.to(user.roomId).emit("room-owner-changed", {
+      id: nextOwner.id,
+      username: nextOwner.username
+    });
+    io.to(user.roomId).emit(
+      "system-message",
+      systemMessage(`${nextOwner.username} ahora administra la reunion.`)
+    );
+    broadcastJoinRequests(user.roomId);
+  }
+
+  if (user.role === "owner" && !nextOwner) {
+    pendingRequests.forEach((request) => {
+      io.to(request.socketId).emit("join-rejected", {
+        roomId: user.roomId,
+        error: "La reunion termino antes de aceptar tu solicitud."
+      });
+    });
+  }
+
   log("info", "room_left", {
     roomId: user.roomId,
     socketId: user.id,
@@ -207,64 +352,203 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("join-room", (payload, callback) => {
+  socket.on("create-room", (payload, callback) => {
     const username = normalizeUsername(payload?.username);
     const roomId = normalizeRoomId(payload?.roomId);
 
     if (!username || !roomId) {
-      log("warn", "join_rejected", {
+      log("warn", "create_room_rejected", {
         socketId: socket.id,
         hasUsername: Boolean(username),
         hasRoomId: Boolean(roomId)
       });
       acknowledge(callback, {
         ok: false,
-        error: "Escribe un nombre y una sala validos."
+        error: "Escribe un nombre y un codigo de reunion validos."
+      });
+      return;
+    }
+
+    if (!allowLobbyAction(socket)) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Demasiados intentos. Espera unos segundos."
       });
       return;
     }
 
     leaveCurrentRoom(socket, "switch-room");
-    socket.join(roomId);
+    removePendingRequest(socket, "create-room");
 
     const user = {
       id: socket.id,
       username,
-      roomId,
+      role: "owner",
       joinedAt: new Date().toISOString()
     };
+    const owner = createRoom(roomId, user);
 
-    addUser(user);
+    if (!owner) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Ese codigo ya esta en uso. Genera otro o solicita acceso."
+      });
+      return;
+    }
+
+    socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.username = username;
+    socket.data.pendingRoomId = null;
 
     acknowledge(callback, {
       ok: true,
-      roomId,
-      self: {
-        id: user.id,
-        username: user.username,
-        joinedAt: user.joinedAt
-      },
-      users: getRoomUsers(roomId)
+      ...publicRoomPayload(owner, roomId)
     });
 
-    socket.to(roomId).emit("peer-joined", {
-      id: user.id,
-      username: user.username,
-      joinedAt: user.joinedAt
-    });
     io.to(roomId).emit(
       "system-message",
-      systemMessage(`${user.username} entro a la sala.`)
+      systemMessage(`${owner.username} creo la reunion.`)
     );
-    broadcastUsers(roomId);
-    log("info", "room_joined", {
+    log("info", "room_created", {
       roomId,
-      socketId: user.id,
-      username: user.username,
-      roomUsers: getRoomUsers(roomId).length,
+      socketId: owner.id,
+      username: owner.username,
       ...getRoomStats()
+    });
+  });
+
+  socket.on("request-join", (payload, callback) => {
+    const username = normalizeUsername(payload?.username);
+    const roomId = normalizeRoomId(payload?.roomId);
+
+    if (!username || !roomId) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Escribe tu nombre y un codigo de reunion valido."
+      });
+      return;
+    }
+
+    if (!allowLobbyAction(socket)) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Demasiadas solicitudes. Espera unos segundos."
+      });
+      return;
+    }
+
+    if (!roomExists(roomId)) {
+      log("warn", "join_request_missing_room", {
+        roomId,
+        socketId: socket.id,
+        username
+      });
+      acknowledge(callback, {
+        ok: false,
+        error: "No encontramos esa reunion. Revisa el codigo o pide un enlace nuevo."
+      });
+      return;
+    }
+
+    const currentUser = getUser(socket.id);
+
+    if (currentUser?.roomId === roomId) {
+      acknowledge(callback, {
+        ok: true,
+        admitted: true,
+        ...publicRoomPayload(currentUser, roomId)
+      });
+      return;
+    }
+
+    leaveCurrentRoom(socket, "request-join");
+    const request = addJoinRequest({
+      id: crypto.randomUUID(),
+      roomId,
+      socketId: socket.id,
+      username,
+      requestedAt: new Date().toISOString()
+    });
+    const owner = getRoomOwner(roomId);
+
+    socket.data.pendingRoomId = roomId;
+    socket.data.username = username;
+    acknowledge(callback, {
+      ok: true,
+      admitted: false,
+      request
+    });
+    io.to(owner.id).emit("join-request", request);
+    broadcastJoinRequests(roomId);
+    log("info", "join_requested", {
+      roomId,
+      socketId: socket.id,
+      username,
+      ownerSocketId: owner.id,
+      ...getRoomStats()
+    });
+  });
+
+  socket.on("respond-join-request", (payload, callback) => {
+    const roomId = socket.data.roomId;
+    const request = getJoinRequest(payload?.socketId);
+
+    if (!roomId || !isRoomOwner(socket.id, roomId)) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Solo el owner puede responder solicitudes."
+      });
+      return;
+    }
+
+    if (!request || request.roomId !== roomId) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Esa solicitud ya no esta disponible."
+      });
+      broadcastJoinRequests(roomId);
+      return;
+    }
+
+    const targetSocket = io.sockets.sockets.get(request.socketId);
+
+    removeJoinRequest(request.socketId);
+    broadcastJoinRequests(roomId);
+
+    if (!targetSocket) {
+      acknowledge(callback, {
+        ok: false,
+        error: "El usuario ya se desconecto."
+      });
+      return;
+    }
+
+    if (!payload?.accept) {
+      targetSocket.data.pendingRoomId = null;
+      io.to(targetSocket.id).emit("join-rejected", {
+        roomId,
+        error: "El owner rechazo la solicitud."
+      });
+      acknowledge(callback, { ok: true });
+      log("info", "join_rejected_by_owner", {
+        roomId,
+        ownerSocketId: socket.id,
+        targetId: targetSocket.id,
+        username: request.username
+      });
+      return;
+    }
+
+    const admission = admitSocketToRoom(targetSocket, roomId, request.username);
+
+    io.to(targetSocket.id).emit("join-approved", admission);
+    acknowledge(callback, { ok: true });
+    log("info", "join_approved", {
+      roomId,
+      ownerSocketId: socket.id,
+      targetId: targetSocket.id,
+      username: request.username
     });
   });
 
@@ -316,6 +600,125 @@ io.on("connection", (socket) => {
       length: text.length
     });
     acknowledge(callback, { ok: true });
+  });
+
+  socket.on("moderate-user", (payload, callback) => {
+    const owner = getUser(socket.id);
+    const target = getUser(payload?.targetId);
+    const action = String(payload?.action ?? "");
+
+    if (!owner || owner.role !== "owner" || !target || target.roomId !== owner.roomId) {
+      log("warn", "moderation_rejected", {
+        action,
+        ownerSocketId: socket.id,
+        targetId: payload?.targetId
+      });
+      acknowledge(callback, {
+        ok: false,
+        error: "No se pudo aplicar esa accion de moderacion."
+      });
+      return;
+    }
+
+    if (target.id === owner.id) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Usa tus propios controles para cambiar tu audio o salir."
+      });
+      return;
+    }
+
+    if (action === "mute") {
+      io.to(target.id).emit("moderation-muted", {
+        roomId: owner.roomId,
+        by: owner.username
+      });
+      io.to(owner.roomId).emit(
+        "system-message",
+        systemMessage(`${target.username} fue silenciado por ${owner.username}.`)
+      );
+      acknowledge(callback, { ok: true });
+      log("info", "user_muted_by_owner", {
+        roomId: owner.roomId,
+        ownerSocketId: owner.id,
+        targetId: target.id
+      });
+      return;
+    }
+
+    if (action === "kick") {
+      const targetSocket = io.sockets.sockets.get(target.id);
+
+      io.to(target.id).emit("meeting-removed", {
+        roomId: owner.roomId,
+        error: "El owner te retiro de la reunion."
+      });
+
+      if (targetSocket) {
+        leaveCurrentRoom(targetSocket, "owner-kick");
+      }
+
+      acknowledge(callback, { ok: true });
+      log("info", "user_kicked_by_owner", {
+        roomId: owner.roomId,
+        ownerSocketId: owner.id,
+        targetId: target.id
+      });
+      return;
+    }
+
+    acknowledge(callback, {
+      ok: false,
+      error: "Accion de moderacion no reconocida."
+    });
+  });
+
+  socket.on("close-room", (_payload, callback) => {
+    const owner = getUser(socket.id);
+
+    if (!owner || owner.role !== "owner") {
+      acknowledge(callback, {
+        ok: false,
+        error: "Solo el owner puede cerrar la reunion."
+      });
+      return;
+    }
+
+    const closedRoom = closeRoom(owner.roomId);
+
+    closedRoom.requests.forEach((request) => {
+      const waitingSocket = io.sockets.sockets.get(request.socketId);
+
+      if (waitingSocket) {
+        waitingSocket.data.pendingRoomId = null;
+        waitingSocket.emit("join-rejected", {
+          roomId: owner.roomId,
+          error: "La reunion se cerro antes de aceptar tu solicitud."
+        });
+      }
+    });
+    closedRoom.users.forEach((user) => {
+      const participantSocket = io.sockets.sockets.get(user.id);
+
+      if (participantSocket) {
+        participantSocket.emit("meeting-closed", {
+          roomId: owner.roomId,
+          error: "El owner cerro la reunion."
+        });
+        participantSocket.leave(owner.roomId);
+        participantSocket.data.roomId = null;
+        participantSocket.data.username = null;
+      }
+    });
+
+    acknowledge(callback, { ok: true });
+    log("info", "room_closed", {
+      roomId: owner.roomId,
+      ownerSocketId: owner.id,
+      users: closedRoom.users.length,
+      requests: closedRoom.requests.length,
+      ...getRoomStats()
+    });
   });
 
   socket.on("webrtc-offer", (payload, callback) => {
@@ -384,11 +787,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("leave-room", (_payload, callback) => {
+    removePendingRequest(socket, "leave-room");
     leaveCurrentRoom(socket, "leave-room");
     acknowledge(callback, { ok: true });
   });
 
   socket.on("disconnect", (reason) => {
+    removePendingRequest(socket, `disconnect:${reason}`);
     leaveCurrentRoom(socket, `disconnect:${reason}`);
     log("info", "socket_disconnected", {
       socketId: socket.id,

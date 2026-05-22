@@ -18,7 +18,7 @@ function realtimeLog(level, event, details = {}) {
   const logger =
     level === "error" ? console.error : level === "warn" ? console.warn : console.info;
 
-  logger(`[campus-room][realtime] ${event}`, details);
+  logger(`[conectate-live][realtime] ${event}`, details);
 }
 
 function emitWithAck(socket, eventName, payload) {
@@ -112,6 +112,7 @@ export function useMeeting() {
   const [roomId, setRoomId] = useState("");
   const [self, setSelf] = useState(null);
   const [users, setUsers] = useState([]);
+  const [joinRequests, setJoinRequests] = useState([]);
   const [messages, setMessages] = useState([]);
   const [localStream, setLocalStream] = useState(null);
   const [previewStream, setPreviewStream] = useState(null);
@@ -161,6 +162,12 @@ export function useMeeting() {
   function syncUsers(nextUsers) {
     usersRef.current = nextUsers;
     setUsers(nextUsers);
+
+    const updatedSelf = nextUsers.find((user) => user.id === selfRef.current?.id);
+
+    if (updatedSelf && updatedSelf.role !== selfRef.current?.role) {
+      setCurrentSelf(updatedSelf);
+    }
 
     const activeIds = new Set(nextUsers.map((user) => user.id));
 
@@ -751,23 +758,74 @@ export function useMeeting() {
     }
   }
 
-  async function rejoinAfterReconnect(socket) {
-    if (!sessionRef.current?.joined) {
-      return;
-    }
-
-    const response = await emitWithAck(socket, "join-room", sessionRef.current);
-
-    if (!response.ok) {
-      setError(response.error);
-      return;
-    }
-
-    clearPeers("socket-rejoin");
+  async function completeAdmission(response) {
+    sessionRef.current = {
+      ...sessionRef.current,
+      roomId: response.roomId,
+      joined: true
+    };
+    clearPeers("meeting-admitted");
     setCurrentSelf(response.self);
     syncUsers(response.users);
     setRoomId(response.roomId);
+    setJoinRequests([]);
+    setStatus("joined");
+    syncRoomToLocation(response.roomId);
     await connectToExistingUsers(response);
+  }
+
+  async function requestSessionAccess(socket, session, eventName) {
+    const response = await emitWithAck(socket, eventName, {
+      username: session.username,
+      roomId: session.roomId
+    });
+
+    if (!response.ok) {
+      throw new Error(response.error);
+    }
+
+    if (response.admitted) {
+      await completeAdmission(response);
+      return response;
+    }
+
+    sessionRef.current = {
+      ...session,
+      joined: false
+    };
+    setStatus("waiting");
+    setRoomId(session.roomId);
+    syncRoomToLocation(session.roomId);
+    return response;
+  }
+
+  async function rejoinAfterReconnect(socket) {
+    if (!sessionRef.current) {
+      return;
+    }
+
+    try {
+      if (!sessionRef.current.joined) {
+        await requestSessionAccess(socket, sessionRef.current, "request-join");
+        return;
+      }
+
+      clearPeers("socket-rejoin");
+
+      if (sessionRef.current.mode === "create") {
+        const response = await emitWithAck(socket, "create-room", sessionRef.current);
+
+        if (response.ok) {
+          await completeAdmission(response);
+          return;
+        }
+      }
+
+      await requestSessionAccess(socket, sessionRef.current, "request-join");
+      setError("La conexion volvio. Esperando confirmacion para reingresar.");
+    } catch (rejoinError) {
+      setError(rejoinError.message || "No se pudo recuperar la reunion.");
+    }
   }
 
   function bindSocket(socket) {
@@ -780,7 +838,7 @@ export function useMeeting() {
 
     socket.on("disconnect", (reason) => {
       setConnected(false);
-      setSocketStatus(sessionRef.current?.joined ? "reconnecting" : "disconnected");
+      setSocketStatus(sessionRef.current ? "reconnecting" : "disconnected");
       clearPeers("socket-disconnected");
       realtimeLog("warn", "socket-disconnected", { reason });
 
@@ -811,6 +869,50 @@ export function useMeeting() {
     });
 
     socket.on("room-users", syncUsers);
+    socket.on("join-request", (request) => {
+      setJoinRequests((current) =>
+        current.some((entry) => entry.socketId === request.socketId)
+          ? current
+          : [...current, request]
+      );
+    });
+    socket.on("join-requests", setJoinRequests);
+    socket.on("join-approved", async (response) => {
+      setError("");
+      await completeAdmission(response);
+    });
+    socket.on("join-rejected", (payload) => {
+      sessionRef.current = null;
+      setStatus("idle");
+      setError(payload?.error || "No se aprobo la entrada a la reunion.");
+    });
+    socket.on("moderation-muted", (payload) => {
+      const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+
+      if (audioTrack) {
+        audioTrack.enabled = false;
+        setMediaState((current) => ({
+          ...current,
+          micEnabled: false
+        }));
+      }
+
+      setError(
+        payload?.by
+          ? `${payload.by} silencio tu microfono. Puedes activarlo de nuevo.`
+          : "El owner silencio tu microfono."
+      );
+    });
+    socket.on("meeting-removed", (payload) => {
+      destroyMeeting(false);
+      setStatus("ended");
+      setError(payload?.error || "Te retiraron de la reunion.");
+    });
+    socket.on("meeting-closed", (payload) => {
+      destroyMeeting(false);
+      setStatus("ended");
+      setError(payload?.error || "La reunion termino.");
+    });
     socket.on("system-message", appendMessage);
     socket.on("chat-message", appendMessage);
     socket.on("peer-joined", (user) => {
@@ -972,7 +1074,7 @@ export function useMeeting() {
     return null;
   }
 
-  async function joinMeeting({ username, roomId: requestedRoomId }) {
+  async function joinMeeting({ mode = "join", username, roomId: requestedRoomId }) {
     setError("");
     setStatus("joining");
     setMessages([]);
@@ -981,31 +1083,32 @@ export function useMeeting() {
 
     try {
       const socket = await openSocket();
-      const response = await emitWithAck(socket, "join-room", {
+      const session = {
+        mode,
         username,
-        roomId: requestedRoomId
-      });
+        roomId: requestedRoomId,
+        joined: false
+      };
 
-      if (!response.ok) {
-        throw new Error(response.error);
+      sessionRef.current = session;
+
+      if (mode === "create") {
+        const response = await emitWithAck(socket, "create-room", session);
+
+        if (!response.ok) {
+          throw new Error(response.error);
+        }
+
+        await completeAdmission(response);
+        return;
       }
 
-      sessionRef.current = {
-        username,
-        roomId: response.roomId,
-        joined: true
-      };
-      setCurrentSelf(response.self);
-      syncUsers(response.users);
-      setRoomId(response.roomId);
-      setStatus("joined");
-      syncRoomToLocation(response.roomId);
-      await connectToExistingUsers(response);
+      await requestSessionAccess(socket, session, "request-join");
     } catch (joinError) {
       closeSocket();
       setConnected(false);
       setSocketStatus("disconnected");
-      setError(joinError.message || "No se pudo entrar a la sala.");
+      setError(joinError.message || "No se pudo entrar a la reunion.");
       setStatus("idle");
     }
   }
@@ -1018,6 +1121,54 @@ export function useMeeting() {
     const response = await emitWithAck(socketRef.current, "chat-message", {
       text
     });
+
+    if (!response.ok) {
+      setError(response.error);
+    }
+
+    return response.ok;
+  }
+
+  async function respondToJoinRequest(request, accept) {
+    if (!socketRef.current || !request?.socketId) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "respond-join-request", {
+      accept,
+      socketId: request.socketId
+    });
+
+    if (!response.ok) {
+      setError(response.error);
+    }
+
+    return response.ok;
+  }
+
+  async function moderateUser(targetId, action) {
+    if (!socketRef.current || !targetId) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "moderate-user", {
+      action,
+      targetId
+    });
+
+    if (!response.ok) {
+      setError(response.error);
+    }
+
+    return response.ok;
+  }
+
+  async function closeMeeting() {
+    if (!socketRef.current) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "close-room", {});
 
     if (!response.ok) {
       setError(response.error);
@@ -1221,6 +1372,7 @@ export function useMeeting() {
     setRoomId("");
     setCurrentSelf(null);
     setUsers([]);
+    setJoinRequests([]);
     setMessages([]);
     setRemoteMedia({});
     setError("");
@@ -1244,15 +1396,18 @@ export function useMeeting() {
 
   return {
     connected,
+    closeMeeting,
     connectionQuality,
     error,
     joinMeeting,
+    joinRequests,
     localSpeaking,
     localStream,
     mediaState,
     messages,
     previewStream,
     reconnectCall,
+    respondToJoinRequest,
     remoteMedia: remoteMediaEntries,
     requestLocalMedia,
     retrySocketConnection,
@@ -1261,6 +1416,7 @@ export function useMeeting() {
     sendMessage,
     socketStatus,
     status,
+    moderateUser,
     toggleCamera,
     toggleMic,
     toggleRemoteMute,

@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "campus-room-backend",
+      name: "conectate-live-backend",
       cwd: __dirname,
       script: "./src/server.js",
       interpreter: "node",

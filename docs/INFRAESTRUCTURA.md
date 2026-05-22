@@ -1,4 +1,4 @@
-# Ubuntu Server 24.04 para Campus Room
+# Ubuntu Server 24.04 para Conectate Live
 
 Esta guia deja el proyecto listo dentro de VirtualBox sin Docker. La ruta
 recomendada para una laptop personal es:
@@ -29,14 +29,14 @@ Con Git:
 
 ```bash
 cd ~
-git clone TU_REPOSITORIO campus-room
-cd campus-room
+git clone TU_REPOSITORIO conectate-live
+cd conectate-live
 ```
 
 Si copias la carpeta manualmente, deja el proyecto en una ruta simple como:
 
 ```text
-~/campus-room
+~/conectate-live
 ```
 
 ## 3. Instalacion automatica
@@ -72,6 +72,7 @@ nano backend/.env
 PORT=4000
 CLIENT_ORIGINS=http://localhost:4173,http://127.0.0.1:4173,http://localhost:5173,http://127.0.0.1:5173,https://tu-frontend.vercel.app
 LOG_LEVEL=info
+TRUST_PROXY=0
 ```
 
 Frontend local:
@@ -142,10 +143,10 @@ pm2 save
 Comandos practicos:
 
 ```bash
-pm2 restart campus-room-backend
-pm2 restart campus-room-frontend
-pm2 logs campus-room-backend --lines 120
-pm2 logs campus-room-frontend --lines 120
+pm2 restart conectate-live-backend
+pm2 restart conectate-live-frontend
+pm2 logs conectate-live-backend --lines 120
+pm2 logs conectate-live-frontend --lines 120
 pm2 monit
 ```
 
@@ -199,10 +200,11 @@ VITE_ICE_SERVERS_JSON=[{"urls":"stun:stun.l.google.com:19302"}]
 ```
 
 En `backend/.env` agrega el dominio exacto de Vercel a `CLIENT_ORIGINS` y
-reinicia:
+usa `TRUST_PROXY=1` cuando la URL publica llegue por tunel o proxy HTTPS.
+Reinicia:
 
 ```bash
-pm2 restart campus-room-backend --update-env
+pm2 restart conectate-live-backend --update-env
 ```
 
 ## 9. WebRTC: errores comunes
@@ -225,7 +227,7 @@ pm2 restart campus-room-backend --update-env
 
 - Usa URL HTTPS para el backend. Un frontend HTTPS no debe depender de un backend HTTP privado.
 - Revisa `CLIENT_ORIGINS` con el origen exacto de Vercel.
-- Mira `pm2 logs campus-room-backend --lines 120` y busca `cors_origin_rejected` o `socket_connection_error`.
+- Mira `pm2 logs conectate-live-backend --lines 120` y busca `cors_origin_rejected` o `socket_connection_error`.
 
 ### Desde otro equipo no abre la VM
 
@@ -249,7 +251,7 @@ pm2 restart campus-room-backend --update-env
 Despues de traer cambios:
 
 ```bash
-cd ~/campus-room
+cd ~/conectate-live
 npm ci
 ./start.sh
 ```
@@ -257,6 +259,6 @@ npm ci
 Para ver solo errores recientes:
 
 ```bash
-pm2 logs campus-room-backend --err --lines 80
-pm2 logs campus-room-frontend --err --lines 80
+pm2 logs conectate-live-backend --err --lines 80
+pm2 logs conectate-live-frontend --err --lines 80
 ```

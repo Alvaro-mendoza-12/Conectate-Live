@@ -2,14 +2,14 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE_SETUP_SCRIPT="/tmp/campus-room-nodesource.sh"
+NODE_SETUP_SCRIPT="/tmp/conectate-live-nodesource.sh"
 
 info() {
-  printf '\n[campus-room][install] %s\n' "$1"
+  printf '\n[conectate-live][install] %s\n' "$1"
 }
 
 fail() {
-  printf '\n[campus-room][install][error] %s\n' "$1" >&2
+  printf '\n[conectate-live][install][error] %s\n' "$1" >&2
   exit 1
 }
 
@@ -102,7 +102,7 @@ main() {
 
   cat <<'MESSAGE'
 
-[campus-room][install] Instalacion lista.
+[conectate-live][install] Instalacion lista.
 
 Siguiente paso rapido:
   ./start.sh
@@ -115,8 +115,8 @@ Si entraras desde otro dispositivo de la LAN:
        sudo ufw allow 4173/tcp
 
 Para ver logs:
-  pm2 logs campus-room-backend --lines 120
-  pm2 logs campus-room-frontend --lines 120
+  pm2 logs conectate-live-backend --lines 120
+  pm2 logs conectate-live-frontend --lines 120
 MESSAGE
 }
 

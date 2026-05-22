@@ -4,11 +4,11 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 info() {
-  printf '\n[campus-room][start] %s\n' "$1"
+  printf '\n[conectate-live][start] %s\n' "$1"
 }
 
 fail() {
-  printf '\n[campus-room][start][error] %s\n' "$1" >&2
+  printf '\n[conectate-live][start][error] %s\n' "$1" >&2
   exit 1
 }
 
@@ -40,7 +40,7 @@ main() {
 
   cat <<'MESSAGE'
 
-[campus-room][start] Servicios listos.
+[conectate-live][start] Servicios listos.
 
 Frontend local:
   http://IP_DE_LA_VM:4173
@@ -49,8 +49,8 @@ Backend health:
   http://IP_DE_LA_VM:4000/health
 
 Logs rapidos:
-  pm2 logs campus-room-backend --lines 120
-  pm2 logs campus-room-frontend --lines 120
+  pm2 logs conectate-live-backend --lines 120
+  pm2 logs conectate-live-frontend --lines 120
 MESSAGE
 }
 

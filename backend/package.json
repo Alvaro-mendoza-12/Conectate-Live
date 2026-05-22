@@ -1,5 +1,5 @@
 {
-  "name": "campus-room-backend",
+  "name": "conectate-live-backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -20,4 +20,3 @@
     "node": ">=20.19.0"
   }
 }
-

@@ -6,7 +6,7 @@ const logDir = path.join(rootDir, "logs");
 module.exports = {
   apps: [
     {
-      name: "campus-room-backend",
+      name: "conectate-live-backend",
       cwd: path.join(rootDir, "backend"),
       script: "./src/server.js",
       interpreter: "node",
@@ -27,7 +27,7 @@ module.exports = {
       }
     },
     {
-      name: "campus-room-frontend",
+      name: "conectate-live-frontend",
       cwd: path.join(rootDir, "frontend"),
       script: "./server.mjs",
       interpreter: "node",

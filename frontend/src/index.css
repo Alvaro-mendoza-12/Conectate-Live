@@ -35,3 +35,29 @@ input {
 video {
   background: #04060b;
 }
+
+.animate-rise {
+  animation: rise 480ms ease-out both;
+}
+
+.bg-coral-soft {
+  background: rgba(251, 113, 133, 0.2);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+}

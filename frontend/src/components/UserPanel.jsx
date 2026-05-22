@@ -1,6 +1,8 @@
-import { UsersRound } from "lucide-react";
+import { Crown, MicOff, UserRoundX, UsersRound } from "lucide-react";
 
-export function UserPanel({ className = "", self, users }) {
+export function UserPanel({ className = "", onModerate, self, users }) {
+  const owner = self?.role === "owner";
+
   return (
     <aside
       className={`${className} min-h-0 flex-col rounded-lg border border-white/10 bg-[#0f1320]/88`}
@@ -22,10 +24,40 @@ export function UserPanel({ className = "", self, users }) {
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-indigo-300 font-semibold text-slate-950">
               {user.username.slice(0, 1).toUpperCase()}
             </span>
-            <span className="min-w-0 flex-1 truncate">{user.username}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{user.username}</span>
+              {user.role === "owner" ? (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-amber-100">
+                  <Crown size={12} />
+                  Owner
+                </span>
+              ) : null}
+            </span>
             {self?.id === user.id ? (
               <span className="rounded-md bg-teal-300/15 px-2 py-1 text-xs text-teal-100">
                 Tu
+              </span>
+            ) : null}
+            {owner && self?.id !== user.id ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <button
+                  aria-label={`Silenciar ${user.username}`}
+                  className="grid h-8 w-8 place-items-center rounded-md bg-white/8 text-slate-100 hover:bg-white/14"
+                  onClick={() => onModerate(user.id, "mute")}
+                  title="Silenciar usuario"
+                  type="button"
+                >
+                  <MicOff size={15} />
+                </button>
+                <button
+                  aria-label={`Expulsar ${user.username}`}
+                  className="grid h-8 w-8 place-items-center rounded-md bg-rose-300/14 text-rose-100 hover:bg-rose-300/22"
+                  onClick={() => onModerate(user.id, "kick")}
+                  title="Expulsar usuario"
+                  type="button"
+                >
+                  <UserRoundX size={15} />
+                </button>
               </span>
             ) : null}
           </div>
@@ -34,4 +66,3 @@ export function UserPanel({ className = "", self, users }) {
     </aside>
   );
 }
-

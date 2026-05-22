@@ -4,6 +4,7 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  Power,
   RefreshCw,
   UsersRound,
   Video,
@@ -32,6 +33,8 @@ function ControlButton({ active = false, danger = false, label, onClick, childre
 
 export function ControlBar({
   mediaState,
+  canClose,
+  onCloseMeeting,
   onLeave,
   onMobilePanel,
   onReconnectCall,
@@ -86,6 +89,12 @@ export function ControlBar({
       <ControlButton danger label="Salir" onClick={onLeave}>
         <LogOut size={19} />
       </ControlButton>
+
+      {canClose ? (
+        <ControlButton danger label="Cerrar reunion" onClick={onCloseMeeting}>
+          <Power size={19} />
+        </ControlButton>
+      ) : null}
     </footer>
   );
 }
