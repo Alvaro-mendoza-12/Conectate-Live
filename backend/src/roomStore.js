@@ -1,6 +1,9 @@
 const rooms = new Map();
 const usersBySocketId = new Map();
 const requestsBySocketId = new Map();
+const endedRooms = new Map();
+const endedRoomTtlMs = Number(process.env.ENDED_ROOM_TTL_MS || 6 * 60 * 60 * 1000);
+const maxEndedRooms = Number(process.env.MAX_ENDED_ROOMS || 500);
 
 function publicUser(user) {
   return {
@@ -32,8 +35,34 @@ function createRoomState(roomId, ownerId) {
   };
 }
 
+function pruneEndedRooms(now = Date.now()) {
+  endedRooms.forEach((room, roomId) => {
+    if (room.expiresAt <= now) {
+      endedRooms.delete(roomId);
+    }
+  });
+
+  while (endedRooms.size > maxEndedRooms) {
+    endedRooms.delete(endedRooms.keys().next().value);
+  }
+}
+
+function rememberEndedRoom(roomId, reason) {
+  pruneEndedRooms();
+  endedRooms.delete(roomId);
+  endedRooms.set(roomId, {
+    endedAt: new Date().toISOString(),
+    expiresAt: Date.now() + endedRoomTtlMs,
+    id: roomId,
+    reason
+  });
+  pruneEndedRooms();
+}
+
 export function createRoom(roomId, owner) {
-  if (rooms.has(roomId)) {
+  pruneEndedRooms();
+
+  if (rooms.has(roomId) || endedRooms.has(roomId)) {
     return null;
   }
 
@@ -43,8 +72,14 @@ export function createRoom(roomId, owner) {
   return addUser({ ...owner, roomId, role: "owner" });
 }
 
-export function roomExists(roomId) {
-  return rooms.has(roomId);
+export function getRoomState(roomId) {
+  pruneEndedRooms();
+
+  if (rooms.has(roomId)) {
+    return "active";
+  }
+
+  return endedRooms.has(roomId) ? "ended" : "missing";
 }
 
 export function addUser(user) {
@@ -166,6 +201,8 @@ export function removeUser(socketId) {
 
   if (room?.users.size === 0) {
     room.requests.forEach((request) => requestsBySocketId.delete(request.socketId));
+    room.requests.clear();
+    room.users.clear();
     rooms.delete(user.roomId);
   }
 
@@ -187,7 +224,10 @@ export function closeRoom(roomId) {
 
   users.forEach((user) => usersBySocketId.delete(user.id));
   requests.forEach((request) => requestsBySocketId.delete(request.socketId));
+  room.users.clear();
+  room.requests.clear();
   rooms.delete(roomId);
+  rememberEndedRoom(roomId, "owner-closed");
 
   return { requests, users };
 }
@@ -200,7 +240,10 @@ export function shareRoom(leftSocketId, rightSocketId) {
 }
 
 export function getRoomStats() {
+  pruneEndedRooms();
+
   return {
+    endedRooms: endedRooms.size,
     rooms: rooms.size,
     users: usersBySocketId.size,
     waitingRequests: requestsBySocketId.size

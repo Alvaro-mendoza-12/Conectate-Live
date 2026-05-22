@@ -163,7 +163,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
   );
 }
 
-export function SessionEnded({ error, onReturn }) {
+export function SessionEnded({ endState, error, onReturn }) {
   return (
     <main className="grid min-h-screen place-items-center bg-[#060914] px-4 text-white">
       <section className="w-full max-w-md rounded-lg border border-white/10 bg-[#0b1020] p-6 text-center shadow-2xl shadow-black/40">
@@ -171,7 +171,9 @@ export function SessionEnded({ error, onReturn }) {
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-lg bg-white/8 text-cyan-100">
           <VideoOff size={24} />
         </span>
-        <h1 className="mt-4 text-2xl font-semibold">Reunion finalizada</h1>
+        <h1 className="mt-4 text-2xl font-semibold">
+          {endState?.title || "Reunion finalizada"}
+        </h1>
         <p className="mt-3 leading-7 text-slate-300">
           {error || "La sesion termino y tus dispositivos dejaron de compartirse."}
         </p>

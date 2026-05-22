@@ -147,6 +147,15 @@ export function MeetingRoom({ meeting }) {
                 Owner
               </span>
             ) : null}
+            {owner && meeting.ownerPromotion ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-md bg-cyan-200/14 px-2 py-1 text-cyan-50"
+                title="El owner anterior salio y ahora administras la sala."
+              >
+                <Radio size={12} />
+                Nuevo anfitrion
+              </span>
+            ) : null}
           </div>
         </div>
 

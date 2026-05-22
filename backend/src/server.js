@@ -11,13 +11,13 @@ import {
   getJoinRequest,
   getRoomJoinRequests,
   getRoomOwner,
+  getRoomState,
   getRoomStats,
   getRoomUsers,
   getUser,
   isRoomOwner,
   removeJoinRequest,
   removeUser,
-  roomExists,
   shareRoom
 } from "./roomStore.js";
 import {
@@ -278,6 +278,8 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
   if (user.role === "owner" && nextOwner) {
     io.to(user.roomId).emit("room-owner-changed", {
       id: nextOwner.id,
+      joinedAt: nextOwner.joinedAt,
+      role: nextOwner.role,
       username: nextOwner.username
     });
     io.to(user.roomId).emit(
@@ -285,14 +287,31 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
       systemMessage(`${nextOwner.username} ahora administra la reunion.`)
     );
     broadcastJoinRequests(user.roomId);
+    log("info", "room_owner_transferred", {
+      previousOwnerSocketId: user.id,
+      roomId: user.roomId,
+      nextOwnerSocketId: nextOwner.id,
+      requests: getRoomJoinRequests(user.roomId).length
+    });
   }
 
   if (user.role === "owner" && !nextOwner) {
     pendingRequests.forEach((request) => {
-      io.to(request.socketId).emit("join-rejected", {
-        roomId: user.roomId,
-        error: "La reunion termino antes de aceptar tu solicitud."
-      });
+      const waitingSocket = io.sockets.sockets.get(request.socketId);
+
+      if (waitingSocket) {
+        waitingSocket.data.pendingRoomId = null;
+        waitingSocket.emit("join-rejected", {
+          code: "ROOM_UNAVAILABLE",
+          roomId: user.roomId,
+          error: "La reunion quedo vacia antes de aceptar tu solicitud."
+        });
+      }
+    });
+
+    log("info", "room_destroyed_empty", {
+      roomId: user.roomId,
+      requests: pendingRequests.length
     });
   }
 
@@ -389,9 +408,15 @@ io.on("connection", (socket) => {
     const owner = createRoom(roomId, user);
 
     if (!owner) {
+      const roomState = getRoomState(roomId);
+
       acknowledge(callback, {
+        code: roomState === "ended" ? "ROOM_ENDED" : "ROOM_ACTIVE",
         ok: false,
-        error: "Ese codigo ya esta en uso. Genera otro o solicita acceso."
+        error:
+          roomState === "ended"
+            ? "Ese codigo pertenece a una reunion terminada. Genera otro."
+            : "Ese codigo ya esta en uso. Genera otro o solicita acceso."
       });
       return;
     }
@@ -438,15 +463,22 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!roomExists(roomId)) {
-      log("warn", "join_request_missing_room", {
+    const roomState = getRoomState(roomId);
+
+    if (roomState !== "active") {
+      log("warn", "join_request_unavailable_room", {
         roomId,
+        roomState,
         socketId: socket.id,
         username
       });
       acknowledge(callback, {
+        code: roomState === "ended" ? "ROOM_ENDED" : "ROOM_MISSING",
         ok: false,
-        error: "No encontramos esa reunion. Revisa el codigo o pide un enlace nuevo."
+        error:
+          roomState === "ended"
+            ? "Esta reunion ya termino."
+            : "No encontramos esa reunion. Revisa el codigo o pide un enlace nuevo."
       });
       return;
     }
@@ -686,14 +718,17 @@ io.on("connection", (socket) => {
 
     const closedRoom = closeRoom(owner.roomId);
 
+    acknowledge(callback, { ok: true });
+
     closedRoom.requests.forEach((request) => {
       const waitingSocket = io.sockets.sockets.get(request.socketId);
 
       if (waitingSocket) {
         waitingSocket.data.pendingRoomId = null;
         waitingSocket.emit("join-rejected", {
+          code: "ROOM_ENDED",
           roomId: owner.roomId,
-          error: "La reunion se cerro antes de aceptar tu solicitud."
+          error: "Esta reunion ya termino."
         });
       }
     });
@@ -702,8 +737,9 @@ io.on("connection", (socket) => {
 
       if (participantSocket) {
         participantSocket.emit("meeting-closed", {
+          code: "ROOM_ENDED",
           roomId: owner.roomId,
-          error: "El owner cerro la reunion."
+          error: "La reunion ha finalizado."
         });
         participantSocket.leave(owner.roomId);
         participantSocket.data.roomId = null;
@@ -711,7 +747,6 @@ io.on("connection", (socket) => {
       }
     });
 
-    acknowledge(callback, { ok: true });
     log("info", "room_closed", {
       roomId: owner.roomId,
       ownerSocketId: owner.id,

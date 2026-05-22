@@ -2,11 +2,12 @@
 
 ## Modulos actuales
 
-- `frontend/src/components/ProductHome.jsx`: inicio, dashboard mock, creacion rapida y entrada por enlace.
+- `frontend/src/components/ProductHome.jsx`: inicio, dashboard local, creacion rapida y entrada por enlace.
 - `frontend/src/components/LobbyScreen.jsx`: preview local y espera de aprobacion.
 - `frontend/src/hooks/useMeeting.js`: sesion realtime, Socket.IO, WebRTC mesh, permisos multimedia, reconexion y limpieza.
+- `frontend/src/lib/recentMeetings.js`: historial efimero en `localStorage` mientras no exista persistencia remota.
 - `backend/src/server.js`: Express, CORS, signaling, chat, sala de espera y moderacion.
-- `backend/src/roomStore.js`: salas, owners, usuarios y solicitudes solo en RAM.
+- `backend/src/roomStore.js`: salas, owners, usuarios, solicitudes y huellas cortas de salas cerradas en RAM.
 
 ## Flujo realtime
 
@@ -22,7 +23,9 @@
 - El owner puede silenciar y expulsar con `moderate-user`.
 - El owner puede cerrar con `close-room`.
 - Si el owner sale y quedan invitados, el usuario mas antiguo restante pasa a owner.
+- Las solicitudes pendientes siguen vivas al transferir owner y se cancelan si el owner cierra la reunion.
 - Si la reunion queda vacia, usuarios, requests y sala desaparecen del store en RAM.
+- Una reunion cerrada conserva una huella efimera para responder “termino” a enlaces viejos sin revivir la sala.
 
 ## Produccion ligera
 

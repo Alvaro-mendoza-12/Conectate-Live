@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { iceServers, socketUrl } from "../lib/config.js";
+import {
+  rememberRecentMeeting,
+  updateRecentMeetingParticipants
+} from "../lib/recentMeetings.js";
 import { syncRoomToLocation } from "../lib/room.js";
 
 const initialMediaState = {
@@ -35,6 +39,13 @@ function emitWithAck(socket, eventName, payload) {
       resolve(response ?? { ok: false, error: "Respuesta vacia del servidor." });
     });
   });
+}
+
+function responseError(response) {
+  const error = new Error(response?.error || "El servidor rechazo la solicitud.");
+
+  error.code = response?.code || "REQUEST_REJECTED";
+  return error;
 }
 
 function senderForKind(peerConnection, kind) {
@@ -120,6 +131,8 @@ export function useMeeting() {
   const [mediaState, setMediaState] = useState(initialMediaState);
   const [localSpeaking, setLocalSpeaking] = useState(false);
   const [error, setError] = useState("");
+  const [endState, setEndState] = useState(null);
+  const [ownerPromotion, setOwnerPromotion] = useState(null);
 
   const socketRef = useRef(null);
   const sessionRef = useRef(null);
@@ -163,10 +176,22 @@ export function useMeeting() {
     usersRef.current = nextUsers;
     setUsers(nextUsers);
 
+    const previousSelf = selfRef.current;
     const updatedSelf = nextUsers.find((user) => user.id === selfRef.current?.id);
 
     if (updatedSelf && updatedSelf.role !== selfRef.current?.role) {
       setCurrentSelf(updatedSelf);
+
+      if (previousSelf?.role !== "owner" && updatedSelf.role === "owner") {
+        setOwnerPromotion({
+          promotedAt: new Date().toISOString(),
+          username: updatedSelf.username
+        });
+      }
+    }
+
+    if (sessionRef.current?.joined && sessionRef.current.roomId) {
+      updateRecentMeetingParticipants(sessionRef.current.roomId, nextUsers.length);
     }
 
     const activeIds = new Set(nextUsers.map((user) => user.id));
@@ -769,8 +794,21 @@ export function useMeeting() {
     syncUsers(response.users);
     setRoomId(response.roomId);
     setJoinRequests([]);
+    setEndState(null);
+
+    if (response.self.role !== "owner" || sessionRef.current?.mode === "create") {
+      setOwnerPromotion(null);
+    }
+
     setStatus("joined");
     syncRoomToLocation(response.roomId);
+    rememberRecentMeeting({
+      mode: sessionRef.current?.mode,
+      participantCount: response.users.length,
+      role: response.self.role,
+      roomId: response.roomId,
+      username: response.self.username
+    });
     await connectToExistingUsers(response);
   }
 
@@ -781,7 +819,7 @@ export function useMeeting() {
     });
 
     if (!response.ok) {
-      throw new Error(response.error);
+      throw responseError(response);
     }
 
     if (response.admitted) {
@@ -882,9 +920,28 @@ export function useMeeting() {
       await completeAdmission(response);
     });
     socket.on("join-rejected", (payload) => {
-      sessionRef.current = null;
+      if (payload?.code === "ROOM_ENDED") {
+        destroyMeeting(false);
+        setEndState({
+          kind: "ended",
+          title: "Esta reunion ya termino"
+        });
+        setStatus("ended");
+        setError(payload?.error || "Esta reunion ya termino.");
+        return;
+      }
+
+      destroyMeeting(false);
       setStatus("idle");
       setError(payload?.error || "No se aprobo la entrada a la reunion.");
+    });
+    socket.on("room-owner-changed", (nextOwner) => {
+      if (nextOwner?.id === selfRef.current?.id) {
+        setOwnerPromotion({
+          promotedAt: new Date().toISOString(),
+          username: nextOwner.username
+        });
+      }
     });
     socket.on("moderation-muted", (payload) => {
       const audioTrack = localStreamRef.current?.getAudioTracks()[0];
@@ -905,11 +962,19 @@ export function useMeeting() {
     });
     socket.on("meeting-removed", (payload) => {
       destroyMeeting(false);
+      setEndState({
+        kind: "removed",
+        title: "Ya no estas en la reunion"
+      });
       setStatus("ended");
       setError(payload?.error || "Te retiraron de la reunion.");
     });
     socket.on("meeting-closed", (payload) => {
       destroyMeeting(false);
+      setEndState({
+        kind: "ended",
+        title: "La reunion ha finalizado"
+      });
       setStatus("ended");
       setError(payload?.error || "La reunion termino.");
     });
@@ -1096,7 +1161,7 @@ export function useMeeting() {
         const response = await emitWithAck(socket, "create-room", session);
 
         if (!response.ok) {
-          throw new Error(response.error);
+          throw responseError(response);
         }
 
         await completeAdmission(response);
@@ -1105,9 +1170,18 @@ export function useMeeting() {
 
       await requestSessionAccess(socket, session, "request-join");
     } catch (joinError) {
-      closeSocket();
-      setConnected(false);
-      setSocketStatus("disconnected");
+      destroyMeeting(false);
+
+      if (joinError.code === "ROOM_ENDED") {
+        setEndState({
+          kind: "ended",
+          title: "Esta reunion ya termino"
+        });
+        setError(joinError.message || "Esta reunion ya termino.");
+        setStatus("ended");
+        return;
+      }
+
       setError(joinError.message || "No se pudo entrar a la reunion.");
       setStatus("idle");
     }
@@ -1369,6 +1443,8 @@ export function useMeeting() {
     }
 
     setStatus("idle");
+    setEndState(null);
+    setOwnerPromotion(null);
     setRoomId("");
     setCurrentSelf(null);
     setUsers([]);
@@ -1398,6 +1474,7 @@ export function useMeeting() {
     connected,
     closeMeeting,
     connectionQuality,
+    endState,
     error,
     joinMeeting,
     joinRequests,
@@ -1405,6 +1482,7 @@ export function useMeeting() {
     localStream,
     mediaState,
     messages,
+    ownerPromotion,
     previewStream,
     reconnectCall,
     respondToJoinRequest,

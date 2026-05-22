@@ -38,7 +38,13 @@ export default function App() {
   }
 
   if (meeting.status === "ended") {
-    return <SessionEnded error={meeting.error} onReturn={returnHome} />;
+    return (
+      <SessionEnded
+        endState={meeting.endState}
+        error={meeting.error}
+        onReturn={returnHome}
+      />
+    );
   }
 
   if (draft) {

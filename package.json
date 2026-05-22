@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "postinstall": "npm install --prefix frontend && npm install --prefix backend",
+    "postinstall": "npm --prefix frontend install --ignore-scripts && npm --prefix backend install --ignore-scripts",
     "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",

@@ -33,7 +33,9 @@ export function syncPageMetadata({ roomId = "", status = "home" } = {}) {
   shareUrl.hash = "";
 
   const meetingLabel =
-    status === "joined"
+    status === "ended"
+      ? "Reunion finalizada"
+      : status === "joined"
       ? "Reunion en vivo"
       : cleanRoom
         ? "Unirse a reunion"
