@@ -9,12 +9,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import {
-  createRoomCode,
-  meetingLink,
-  roomFromInput,
-  roomFromLocation
-} from "../lib/room.js";
+import { createRoomCode, roomFromInput, roomFromLocation } from "../lib/room.js";
 
 const mockMeetings = [
   {
@@ -52,10 +47,9 @@ function FeatureChip({ icon: Icon, children }) {
   );
 }
 
-export function ProductHome({ error, onPrepare }) {
+export function ProductHome({ busy = false, error, onPrepare }) {
   const [username, setUsername] = useState("");
   const [joinValue, setJoinValue] = useState(roomFromLocation());
-  const [notice, setNotice] = useState("");
   const [formError, setFormError] = useState("");
   const nextCode = useMemo(createRoomCode, []);
 
@@ -69,16 +63,9 @@ export function ProductHome({ error, onPrepare }) {
     return false;
   }
 
-  async function createFastMeeting(roomId = createRoomCode()) {
+  function createFastMeeting(roomId = createRoomCode()) {
     if (!validateName()) {
       return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(meetingLink(roomId));
-      setNotice("Enlace copiado. Ajusta camara y microfono antes de entrar.");
-    } catch {
-      setNotice("Reunion creada. Podras copiar el enlace desde la llamada.");
     }
 
     onPrepare({
@@ -137,7 +124,7 @@ export function ProductHome({ error, onPrepare }) {
               Conectate Live
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-200 sm:text-lg">
-              Crea una reunion privada, revisa tu preview y deja pasar a cada
+              Crea una reunion privada, entra directo y deja pasar a cada
               participante con controles simples de owner.
             </p>
 
@@ -196,23 +183,19 @@ export function ProductHome({ error, onPrepare }) {
                 {formError || error}
               </p>
             ) : null}
-            {notice ? (
-              <p className="mt-4 rounded-md border border-cyan-200/18 bg-cyan-200/10 px-3 py-2 text-sm text-cyan-50">
-                {notice}
-              </p>
-            ) : null}
-
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
               <button
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-300 font-medium text-slate-950 transition hover:bg-cyan-200"
+                disabled={busy}
                 onClick={() => createFastMeeting(nextCode)}
                 type="button"
               >
                 <Plus size={18} />
-                Crear reunion
+                {busy ? "Creando..." : "Crear reunion"}
               </button>
               <button
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/12 bg-white/8 font-medium text-white transition hover:bg-white/14"
+                disabled={busy}
                 type="submit"
               >
                 Unirse

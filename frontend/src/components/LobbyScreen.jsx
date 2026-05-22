@@ -103,9 +103,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
           Lobby Conectate Live
         </p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-white">
-          {draft.mode === "create"
-            ? "Tu reunion esta lista."
-            : "Solicita acceso al owner."}
+          Solicita acceso al owner.
         </h1>
         <p className="mt-3 leading-7 text-slate-300">
           Revisa camara y microfono. Al entrar, el owner de la sala decide quien
@@ -123,9 +121,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-slate-400">Rol</span>
-            <span className="font-medium text-white">
-              {draft.mode === "create" ? "Owner" : "Invitado"}
-            </span>
+            <span className="font-medium text-white">Invitado</span>
           </div>
         </div>
 
@@ -153,11 +149,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
             type="button"
           >
             <DoorOpen size={18} />
-            {joining
-              ? "Conectando..."
-              : draft.mode === "create"
-                ? "Entrar como owner"
-                : "Solicitar entrada"}
+            {joining ? "Conectando..." : "Solicitar acceso"}
           </button>
         )}
       </aside>

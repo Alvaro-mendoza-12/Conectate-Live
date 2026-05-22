@@ -222,8 +222,8 @@ proxy TLS, agrega el dominio de Vercel a `CLIENT_ORIGINS`, cambia
 
 ## Flujo de producto
 
-1. El creador pulsa `Crear reunion`, el frontend genera codigo y copia el enlace.
-2. El creador entra desde el lobby y queda como `owner` en la RAM del backend.
+1. El creador pulsa `Crear reunion` y recibe codigo y enlace en su sala owner.
+2. El creador entra directo a la sala principal como `owner` en la RAM del backend.
 3. Un invitado pega codigo o enlace, revisa su preview y envia solicitud.
 4. El owner acepta o rechaza desde el popup de sala de espera.
 5. Solo usuarios admitidos pueden recibir signaling, chat y lista de peers.

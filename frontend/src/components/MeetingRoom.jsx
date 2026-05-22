@@ -2,6 +2,7 @@ import {
   Check,
   Copy,
   Crown,
+  Link2,
   MessageSquare,
   Radio,
   RefreshCw,
@@ -85,10 +86,12 @@ function AdmissionDock({ meeting }) {
 export function MeetingRoom({ meeting }) {
   const [mobilePanel, setMobilePanel] = useState("video");
   const [copied, setCopied] = useState(false);
+  const owner = meeting.self.role === "owner";
+  const shareLink = meetingLink(meeting.roomId);
 
   async function copyRoom() {
     try {
-      await navigator.clipboard.writeText(meetingLink(meeting.roomId));
+      await navigator.clipboard.writeText(shareLink);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1_200);
     } catch {
@@ -131,13 +134,13 @@ export function MeetingRoom({ meeting }) {
               aria-label="Copiar enlace de reunion"
               className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-white/8 text-slate-100 hover:bg-white/14"
               onClick={copyRoom}
-              title="Copiar codigo"
+              title="Copiar enlace"
               type="button"
             >
               <Copy size={14} />
             </button>
             {copied ? <span className="text-teal-200">Copiado</span> : null}
-            {meeting.self.role === "owner" ? (
+            {owner ? (
               <span className="inline-flex items-center gap-1 rounded-md bg-amber-200/14 px-2 py-1 text-amber-50">
                 <Crown size={12} />
                 Owner
@@ -153,6 +156,34 @@ export function MeetingRoom({ meeting }) {
           {connectionTone.label}
         </span>
       </header>
+
+      {owner ? (
+        <section className="border-b border-white/8 bg-[#0a1020]/88 px-3 py-2 sm:px-5">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="rounded-md border border-white/10 bg-white/[0.055] px-3 py-2 text-slate-300">
+              Codigo unico{" "}
+              <span className="font-mono font-medium text-white">
+                {meeting.roomId}
+              </span>
+            </span>
+            <span className="flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/[0.055] px-3 py-2 text-slate-300">
+              <Link2 className="shrink-0 text-cyan-100" size={15} />
+              <span className="shrink-0">Enlace unico</span>
+              <span className="max-w-[min(56vw,34rem)] truncate font-mono text-xs text-white">
+                {shareLink}
+              </span>
+            </span>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-cyan-300 px-3 font-medium text-slate-950 transition hover:bg-cyan-200"
+              onClick={copyRoom}
+              type="button"
+            >
+              <Copy size={15} />
+              {copied ? "Copiado" : "Copiar enlace"}
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {meeting.error ? (
         <p className="border-b border-rose-300/15 bg-rose-400/10 px-4 py-2 text-sm text-rose-100">
@@ -247,7 +278,7 @@ export function MeetingRoom({ meeting }) {
       </section>
 
       <ControlBar
-        canClose={meeting.self.role === "owner"}
+        canClose={owner}
         mediaState={meeting.mediaState}
         onCloseMeeting={meeting.closeMeeting}
         onLeave={meeting.leaveMeeting}

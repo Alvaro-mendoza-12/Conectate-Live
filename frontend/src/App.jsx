@@ -9,6 +9,12 @@ export default function App() {
   const [draft, setDraft] = useState(null);
 
   function prepareMeeting(nextDraft) {
+    if (nextDraft.mode === "create") {
+      setDraft(null);
+      meeting.joinMeeting(nextDraft);
+      return;
+    }
+
     setDraft(nextDraft);
     meeting.requestLocalMedia();
   }
@@ -37,5 +43,11 @@ export default function App() {
     );
   }
 
-  return <ProductHome error={meeting.error} onPrepare={prepareMeeting} />;
+  return (
+    <ProductHome
+      busy={meeting.status === "joining"}
+      error={meeting.error}
+      onPrepare={prepareMeeting}
+    />
+  );
 }
