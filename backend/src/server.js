@@ -248,6 +248,7 @@ function broadcastUsers(roomId) {
 
 function publicRoomPayload(user, roomId) {
   return {
+
     roomId,
     self: {
       id: user.id,
@@ -258,7 +259,9 @@ function publicRoomPayload(user, roomId) {
     users: getRoomUsers(roomId),
     whiteboard: getWhiteboardSnapshot(roomId)
   };
+
 }
+
 
 function broadcastJoinRequests(roomId) {
   const owner = getRoomOwner(roomId);
@@ -918,6 +921,52 @@ io.on("connection", (socket) => {
     );
     acknowledge(callback, { ok: true });
     trackMetric("whiteboard.cleared");
+  });
+
+// ===== Recording UX sync (room-wide): start/stop events =====
+  socket.on("recording-start", (_payload, callback) => {
+    const user = getUser(socket.id);
+
+    if (!user) {
+      acknowledge(callback, { ok: false, error: "No estas en una reunion." });
+      return;
+    }
+
+    // UX: lo permitimos solo al owner para mantener control tipo Meet/Discord.
+    if (user.role !== "owner") {
+      acknowledge(callback, { ok: false, error: "Solo el owner puede iniciar grabación." });
+      return;
+    }
+
+    io.to(user.roomId).emit("recording-started", {
+      by: user.username,
+      roomId: user.roomId,
+      startedAt: new Date().toISOString()
+    });
+    acknowledge(callback, { ok: true });
+    trackMetric("recording.started");
+  });
+
+  socket.on("recording-stop", (_payload, callback) => {
+    const user = getUser(socket.id);
+
+    if (!user) {
+      acknowledge(callback, { ok: false, error: "No estas en una reunion." });
+      return;
+    }
+
+    if (user.role !== "owner") {
+      acknowledge(callback, { ok: false, error: "Solo el owner puede detener grabación." });
+      return;
+    }
+
+    io.to(user.roomId).emit("recording-stopped", {
+      by: user.username,
+      roomId: user.roomId,
+      stoppedAt: new Date().toISOString()
+    });
+    acknowledge(callback, { ok: true });
+    trackMetric("recording.stopped");
   });
 
   socket.on("webrtc-offer", (payload, callback) => {

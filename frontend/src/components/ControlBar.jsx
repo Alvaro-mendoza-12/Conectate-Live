@@ -76,18 +76,26 @@ export function ControlBar({
       </ControlButton>
 
       {recording.supported ? (
-        <ControlButton
-          active={recording.active}
-          danger={recording.active}
-          label={
-            recording.active
-              ? "Detener grabacion local"
-              : "Grabar pista local"
-          }
-          onClick={recording.active ? recording.stop : recording.start}
-        >
-          {recording.active ? <Square size={18} /> : <CircleDot size={19} />}
-        </ControlButton>
+        <div className="relative flex items-center gap-2">
+          {recording.active ? (
+            <span className="inline-flex animate-pulse items-center gap-2 rounded-md bg-rose-400/15 px-3 py-2 text-xs font-semibold text-rose-200 border border-rose-400/25">
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
+              REC {recording.elapsedLabel}
+            </span>
+          ) : null}
+          <ControlButton
+            active={recording.active}
+            danger={recording.active}
+            label={
+              recording.active
+                ? "Detener grabacion"
+                : "Grabar reunion"
+            }
+            onClick={recording.active ? recording.stop : recording.start}
+          >
+            {recording.active ? <Square size={18} /> : <CircleDot size={19} />}
+          </ControlButton>
+        </div>
       ) : null}
 
       <span className="mx-1 h-8 w-px bg-white/10 lg:hidden" />

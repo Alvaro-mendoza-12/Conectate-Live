@@ -1,28 +1,3 @@
-import {
-  Check,
-  Copy,
-  Crown,
-  Link2,
-  MessageSquare,
-  PenLine,
-  Radio,
-  RefreshCw,
-  Signal,
-  SignalLow,
-  UserPlus,
-  UsersRound,
-  Video,
-  X
-} from "lucide-react";
-import { useState } from "react";
-import { meetingLink } from "../lib/room.js";
-import { useLocalRecording } from "../hooks/useLocalRecording.js";
-import { useMeetingData } from "../providers/MeetingDataProvider.jsx";
-import { ChatPanel } from "./ChatPanel.jsx";
-import { ControlBar } from "./ControlBar.jsx";
-import { BrandLogo } from "./BrandLogo.jsx";
-import { UserPanel } from "./UserPanel.jsx";
-import { VideoTile } from "./VideoTile.jsx";
 import { WhiteboardPanel } from "./WhiteboardPanel.jsx";
 
 function ViewButton({ active, children, icon: Icon, onClick }) {
@@ -94,7 +69,12 @@ export function MeetingRoom({ meeting }) {
   const [copied, setCopied] = useState(false);
   const owner = meeting.self.role === "owner";
   const shareLink = meetingLink(meeting.roomId);
-  const recording = useLocalRecording(meeting.localStream);
+  const recording = useLocalRecording({
+    localStream: meeting.localStream,
+    screenStream: meeting.mediaState.screenSharing
+      ? meeting.previewStream
+      : null
+  });
   const { rememberInvitation } = useMeetingData();
 
   async function copyRoom() {
@@ -222,6 +202,18 @@ export function MeetingRoom({ meeting }) {
         <p className="border-b border-amber-300/15 bg-amber-300/10 px-4 py-2 text-sm text-amber-50">
           {recording.error}
         </p>
+      ) : null}
+
+      {meeting.recordingActive ? (
+        <div className="pointer-events-none absolute left-0 right-0 top-16 z-30 flex justify-center px-4">
+          <div className="mt-2 flex items-center gap-3 rounded-lg border border-rose-300/25 bg-rose-400/10 px-4 py-2.5 text-sm text-rose-100 shadow-2xl shadow-black/35 backdrop-blur-md">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-400" />
+            <span className="font-medium">La reunión está siendo grabada</span>
+            {meeting.recordingBy ? (
+              <span className="text-rose-50/90">({meeting.recordingBy})</span>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       <nav className="grid grid-cols-4 gap-1 border-b border-white/8 p-2 lg:hidden">
