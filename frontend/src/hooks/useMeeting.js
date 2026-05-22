@@ -884,6 +884,12 @@ export function useMeeting() {
     }
   }
 
+  const [recordingActive, setRecordingActive] = useState(false);
+  const [recordingBy, setRecordingBy] = useState(null);
+  const [recordingStartedAt, setRecordingStartedAt] = useState(null);
+  const [recordingElapsed, setRecordingElapsed] = useState(0);
+
+
   function bindSocket(socket) {
     socket.on("connect", () => {
       setConnected(true);
@@ -1000,6 +1006,20 @@ export function useMeeting() {
     socket.on("chat-message", appendMessage);
     socket.on("whiteboard-stroke", appendWhiteboardStroke);
     socket.on("whiteboard-cleared", () => setWhiteboardStrokes([]));
+    socket.on("recording-started", ({ by, roomId, startedAt }) => {
+      if (roomId && roomId !== selfRef.current?.roomId) return;
+      setRecordingActive(true);
+      setRecordingBy(by ?? null);
+      setRecordingStartedAt(startedAt ? Date.parse(startedAt) : Date.now());
+    });
+    socket.on("recording-stopped", ({ by, roomId }) => {
+      if (roomId && roomId !== selfRef.current?.roomId) return;
+      setRecordingActive(false);
+      setRecordingBy(null);
+      setRecordingStartedAt(null);
+      setRecordingElapsed(0);
+    });
+
     socket.on("peer-joined", (user) => {
       setUsers((current) => {
         const next = current.some((entry) => entry.id === user.id)
@@ -1368,8 +1388,10 @@ export function useMeeting() {
     }
 
     try {
+      // Intentar capturar audio de la pantalla/tab (Chrome/Edge suelen soportarlo)
+      // Nota: si el navegador deniega audio, igual se mantiene la captura de video.
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: false,
+        audio: true,
         video: {
           frameRate: { ideal: 12, max: 18 }
         }
@@ -1385,13 +1407,29 @@ export function useMeeting() {
         stopScreenShare();
       };
 
+      const screenAudioTrack = screenStream.getAudioTracks()[0] ?? null;
+
+      // Video principal del screen share
       await replaceOutgoingTrack("video", screenTrack);
+
+      // Audio del screen share: reemplaza track de audio del sender si existe.
+      // Si no hay audio de display, usamos el audio del mic local (comportamiento actual).
+      if (screenAudioTrack) {
+        await replaceOutgoingTrack("audio", screenAudioTrack);
+      } else {
+        // Si el navegador no permite audio de display, mantenemos el audio del mic.
+        await replaceOutgoingTrack("audio", localStreamRef.current?.getAudioTracks()[0] ?? null);
+      }
+
       setPreviewStream(
         new MediaStream([
           screenTrack,
-          ...(localStreamRef.current?.getAudioTracks() ?? [])
+          ...(screenAudioTrack
+            ? [screenAudioTrack]
+            : localStreamRef.current?.getAudioTracks() ?? [])
         ])
       );
+
       setMediaState((current) => ({
         ...current,
         screenSharing: true
@@ -1470,6 +1508,7 @@ export function useMeeting() {
   }
 
   function destroyMeeting(resetState = true) {
+
     if (socketRef.current?.connected) {
       socketRef.current.emit("leave-room", {});
     }
@@ -1550,6 +1589,8 @@ export function useMeeting() {
     toggleScreenShare,
     users,
     whiteboardStrokes,
+    recordingActive,
+    recordingBy,
     leaveMeeting: destroyMeeting
   };
 }
