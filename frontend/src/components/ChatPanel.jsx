@@ -26,7 +26,7 @@ export function ChatPanel({ className = "", messages, onSend, self }) {
 
   return (
     <aside
-      className={`${className} min-h-0 flex-col rounded-lg border border-white/10 bg-[#0f1320]/88`}
+      className={`${className} surface-panel min-h-0 flex-col rounded-lg border border-white/10`}
     >
       <header className="flex h-14 items-center border-b border-white/8 px-4 text-sm font-medium text-slate-100">
         Chat
@@ -82,7 +82,7 @@ export function ChatPanel({ className = "", messages, onSend, self }) {
           />
           <button
             aria-label="Enviar mensaje"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-indigo-300 text-slate-950 transition hover:bg-indigo-200"
+            className="motion-lift grid h-11 w-11 shrink-0 place-items-center rounded-md bg-indigo-300 text-slate-950 transition hover:bg-indigo-200"
             title="Enviar"
             type="submit"
           >

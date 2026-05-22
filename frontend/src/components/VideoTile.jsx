@@ -30,7 +30,7 @@ export function VideoTile({
 
   return (
     <article
-      className={`relative aspect-video min-h-[160px] overflow-hidden rounded-lg border bg-[#0c101a] transition sm:min-h-[180px] ${
+      className={`video-tile relative aspect-video min-h-[160px] overflow-hidden rounded-lg border bg-[#0c101a] transition sm:min-h-[180px] ${
         speaking
           ? "border-teal-200 shadow-[0_0_0_2px_rgba(94,234,212,0.28)]"
           : "border-white/10"
@@ -57,7 +57,7 @@ export function VideoTile({
 
       <div className="absolute left-3 top-3 flex flex-wrap gap-2">
         {speaking ? (
-          <span className="rounded-md bg-teal-300 px-2 py-1 text-xs font-medium text-slate-950">
+          <span className="speaking-badge rounded-md bg-teal-300 px-2 py-1 text-xs font-medium text-slate-950">
             Hablando
           </span>
         ) : null}

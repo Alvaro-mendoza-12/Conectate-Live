@@ -5,7 +5,7 @@ export function UserPanel({ className = "", onModerate, self, users }) {
 
   return (
     <aside
-      className={`${className} min-h-0 flex-col rounded-lg border border-white/10 bg-[#0f1320]/88`}
+      className={`${className} surface-panel min-h-0 flex-col rounded-lg border border-white/10`}
     >
       <header className="flex h-14 items-center gap-2 border-b border-white/8 px-4 text-sm font-medium text-slate-100">
         <UsersRound size={17} />
@@ -18,7 +18,7 @@ export function UserPanel({ className = "", onModerate, self, users }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {users.map((user) => (
           <div
-            className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-sm text-slate-200"
+            className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-sm text-slate-200 transition hover:bg-white/[0.045]"
             key={user.id}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-indigo-300 font-semibold text-slate-950">

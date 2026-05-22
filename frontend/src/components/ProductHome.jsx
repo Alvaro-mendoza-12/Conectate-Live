@@ -3,6 +3,7 @@ import {
   CalendarClock,
   Copy,
   Link2,
+  LoaderCircle,
   Plus,
   ShieldCheck,
   Video,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createRoomCode, roomFromInput, roomFromLocation } from "../lib/room.js";
+import { BrandLogo } from "./BrandLogo.jsx";
 
 const mockMeetings = [
   {
@@ -24,23 +26,9 @@ const mockMeetings = [
   }
 ];
 
-function Brand() {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="grid h-11 w-11 place-items-center rounded-lg bg-cyan-300 text-slate-950 shadow-[0_14px_44px_rgba(103,232,249,0.2)]">
-        <Video size={22} />
-      </span>
-      <div>
-        <p className="text-lg font-semibold text-white">Conectate Live</p>
-        <p className="text-sm text-slate-300">Reuniones privadas ligeras</p>
-      </div>
-    </div>
-  );
-}
-
 function FeatureChip({ icon: Icon, children }) {
   return (
-    <span className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm text-slate-100 backdrop-blur-sm">
+    <span className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm text-slate-100 shadow-sm shadow-black/15 backdrop-blur-sm transition hover:border-cyan-100/25 hover:bg-black/38">
       <Icon size={15} />
       {children}
     </span>
@@ -97,7 +85,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
   }
 
   return (
-    <main className="min-h-screen bg-[#060914] text-white">
+    <main className="product-shell min-h-screen bg-[#060914] text-white">
       <section className="relative isolate min-h-[min(88dvh,900px)] overflow-hidden px-4 pb-16 pt-5 sm:px-8 lg:px-12">
         <img
           alt=""
@@ -105,13 +93,20 @@ export function ProductHome({ busy = false, error, onPrepare }) {
           src="/conectate-live-hero.png"
         />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(4,7,18,0.98)_0%,rgba(4,7,18,0.88)_42%,rgba(4,7,18,0.44)_72%,rgba(4,7,18,0.9)_100%)]" />
+        <div className="soft-grid absolute inset-0 -z-10 opacity-55" />
         <div className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-gradient-to-t from-[#060914] to-transparent" />
 
         <header className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-          <Brand />
-          <span className="hidden rounded-md border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-200 backdrop-blur-md sm:inline-flex">
-            WebRTC + Socket.IO
-          </span>
+          <BrandLogo pulse />
+          <div className="hidden items-center gap-2 sm:flex">
+            <span className="live-badge">
+              <span />
+              Live
+            </span>
+            <span className="rounded-md border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-200 backdrop-blur-md">
+              WebRTC + Socket.IO
+            </span>
+          </div>
         </header>
 
         <div className="mx-auto grid max-w-7xl gap-8 pt-14 lg:grid-cols-[minmax(0,620px)_minmax(320px,430px)] lg:items-end lg:justify-between lg:pt-24">
@@ -136,7 +131,8 @@ export function ProductHome({ busy = false, error, onPrepare }) {
           </div>
 
           <form
-            className="animate-rise rounded-lg border border-white/12 bg-[#0b1020]/88 p-4 shadow-2xl shadow-black/45 backdrop-blur-md sm:p-5"
+            aria-busy={busy}
+            className="glass-panel animate-rise rounded-lg border border-white/12 p-4 shadow-2xl shadow-black/45 backdrop-blur-md sm:p-5"
             onSubmit={joinMeeting}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -157,7 +153,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
               </span>
               <input
                 autoFocus
-                className="h-12 w-full rounded-md border border-white/10 bg-black/30 px-4 text-white outline-none transition focus:border-cyan-200/65"
+                className="h-12 w-full rounded-md border border-white/10 bg-black/30 px-4 text-white outline-none transition focus:border-cyan-200/65 focus:bg-black/45"
                 maxLength={32}
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder="Alvaro"
@@ -170,7 +166,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
                 Codigo o enlace
               </span>
               <input
-                className="h-12 w-full rounded-md border border-white/10 bg-black/30 px-4 text-white outline-none transition focus:border-cyan-200/65"
+                className="h-12 w-full rounded-md border border-white/10 bg-black/30 px-4 text-white outline-none transition focus:border-cyan-200/65 focus:bg-black/45"
                 maxLength={240}
                 onChange={(event) => setJoinValue(event.target.value)}
                 placeholder="conectate-abc123 o enlace"
@@ -185,29 +181,39 @@ export function ProductHome({ busy = false, error, onPrepare }) {
             ) : null}
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
               <button
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-300 font-medium text-slate-950 transition hover:bg-cyan-200"
+                className="motion-lift inline-flex h-12 items-center justify-center gap-2 rounded-md bg-cyan-300 font-medium text-slate-950 shadow-lg shadow-cyan-950/35 transition hover:bg-cyan-200"
                 disabled={busy}
                 onClick={() => createFastMeeting(nextCode)}
                 type="button"
               >
-                <Plus size={18} />
+                {busy ? <LoaderCircle className="animate-spin" size={18} /> : <Plus size={18} />}
                 {busy ? "Creando..." : "Crear reunion"}
               </button>
               <button
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/12 bg-white/8 font-medium text-white transition hover:bg-white/14"
+                className="motion-lift inline-flex h-12 items-center justify-center gap-2 rounded-md border border-white/12 bg-white/8 font-medium text-white transition hover:border-cyan-100/22 hover:bg-white/14"
                 disabled={busy}
                 type="submit"
               >
-                Unirse
-                <ArrowRight size={18} />
+                {busy ? "Preparando..." : "Unirse"}
+                {busy ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowRight size={18} />}
               </button>
             </div>
+
+            {busy ? (
+              <div
+                aria-live="polite"
+                className="mt-4 grid gap-2 rounded-md border border-white/8 bg-black/18 p-3"
+              >
+                <span className="brand-skeleton h-2.5 w-28 rounded-full" />
+                <span className="brand-skeleton h-2.5 w-full rounded-full" />
+              </div>
+            ) : null}
           </form>
         </div>
       </section>
 
       <section className="relative mx-auto -mt-10 grid max-w-7xl gap-4 px-4 pb-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-12">
-        <div className="rounded-lg border border-white/10 bg-[#0a1020] p-4 sm:p-5">
+        <div className="surface-panel rounded-lg border border-white/10 p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm text-slate-400">Dashboard</p>
@@ -215,8 +221,8 @@ export function ProductHome({ busy = false, error, onPrepare }) {
                 Proximas reuniones
               </h2>
             </div>
-            <button
-              className="inline-flex h-11 items-center gap-2 rounded-md border border-cyan-200/25 bg-cyan-200/10 px-3 text-sm text-cyan-50 hover:bg-cyan-200/16"
+              <button
+              className="motion-lift inline-flex h-11 items-center gap-2 rounded-md border border-cyan-200/25 bg-cyan-200/10 px-3 text-sm text-cyan-50 transition hover:bg-cyan-200/16"
               onClick={() => createFastMeeting()}
               type="button"
             >
@@ -228,7 +234,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
           <div className="grid gap-3 md:grid-cols-2">
             {mockMeetings.map((meeting) => (
               <article
-                className="rounded-lg border border-white/9 bg-white/[0.045] p-4"
+                className="motion-lift rounded-lg border border-white/9 bg-white/[0.045] p-4 transition hover:border-cyan-100/18 hover:bg-white/[0.075]"
                 key={meeting.code}
               >
                 <div className="flex items-start gap-3">
@@ -250,7 +256,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
           </div>
         </div>
 
-        <aside className="rounded-lg border border-white/10 bg-[#0a1020] p-4 sm:p-5">
+        <aside className="surface-panel rounded-lg border border-white/10 p-4 sm:p-5">
           <p className="text-sm text-slate-400">Preparado para crecer</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
             Modulos Conectate

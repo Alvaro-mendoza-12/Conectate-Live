@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LobbyScreen, SessionEnded } from "./components/LobbyScreen.jsx";
 import { MeetingRoom } from "./components/MeetingRoom.jsx";
 import { ProductHome } from "./components/ProductHome.jsx";
 import { useMeeting } from "./hooks/useMeeting.js";
+import { syncPageMetadata } from "./lib/metadata.js";
+import { roomFromLocation } from "./lib/room.js";
 
 export default function App() {
   const meeting = useMeeting();
   const [draft, setDraft] = useState(null);
+
+  useEffect(() => {
+    syncPageMetadata({
+      roomId: meeting.roomId || draft?.roomId || roomFromLocation(),
+      status: meeting.status
+    });
+  }, [draft?.roomId, meeting.roomId, meeting.status]);
 
   function prepareMeeting(nextDraft) {
     if (nextDraft.mode === "create") {

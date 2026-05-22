@@ -8,6 +8,7 @@ import {
   Video,
   VideoOff
 } from "lucide-react";
+import { BrandLogo } from "./BrandLogo.jsx";
 import { VideoTile } from "./VideoTile.jsx";
 
 function LobbyButton({ active = false, label, onClick, children }) {
@@ -35,7 +36,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
   return (
     <main className="grid min-h-screen bg-[#060914] text-white lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="flex min-h-[55dvh] flex-col px-4 py-5 sm:px-8 lg:px-12 lg:py-8">
-        <header className="flex items-center justify-between gap-3">
+        <header className="flex flex-wrap items-center justify-between gap-3">
           <button
             className="inline-flex h-10 items-center gap-2 rounded-md border border-white/10 bg-white/7 px-3 text-sm text-slate-100 hover:bg-white/12"
             onClick={onBack}
@@ -44,6 +45,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
             <ArrowLeft size={16} />
             Inicio
           </button>
+          <BrandLogo compact pulse tagline="Lobby seguro" />
           <p className="truncate rounded-md bg-white/7 px-3 py-2 font-mono text-xs text-cyan-50">
             {draft.roomId}
           </p>
@@ -97,7 +99,7 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
         </div>
       </section>
 
-      <aside className="flex flex-col justify-center border-t border-white/9 bg-[#0b1020] px-4 py-8 sm:px-8 lg:border-l lg:border-t-0">
+      <aside className="surface-panel flex flex-col justify-center border-t border-white/9 px-4 py-8 sm:px-8 lg:border-l lg:border-t-0">
         <p className="inline-flex items-center gap-2 text-sm font-medium text-cyan-100">
           <ShieldCheck size={16} />
           Lobby Conectate Live
@@ -140,10 +142,14 @@ export function LobbyScreen({ draft, meeting, onBack, onEnter }) {
             <p className="mt-2 text-sm leading-6 text-slate-200">
               Tu solicitud ya llego al owner. Mantendremos la conexion lista.
             </p>
+            <div className="mt-3 grid gap-2">
+              <span className="brand-skeleton h-2.5 w-24 rounded-full" />
+              <span className="brand-skeleton h-2.5 w-full rounded-full" />
+            </div>
           </div>
         ) : (
           <button
-            className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-cyan-300 font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-wait disabled:opacity-70"
+            className="motion-lift mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-cyan-300 font-medium text-slate-950 shadow-lg shadow-cyan-950/35 transition hover:bg-cyan-200 disabled:cursor-wait disabled:opacity-70"
             disabled={joining}
             onClick={onEnter}
             type="button"
@@ -161,6 +167,7 @@ export function SessionEnded({ error, onReturn }) {
   return (
     <main className="grid min-h-screen place-items-center bg-[#060914] px-4 text-white">
       <section className="w-full max-w-md rounded-lg border border-white/10 bg-[#0b1020] p-6 text-center shadow-2xl shadow-black/40">
+        <BrandLogo className="justify-center" compact tagline="" />
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-lg bg-white/8 text-cyan-100">
           <VideoOff size={24} />
         </span>

@@ -17,6 +17,7 @@ import { useState } from "react";
 import { meetingLink } from "../lib/room.js";
 import { ChatPanel } from "./ChatPanel.jsx";
 import { ControlBar } from "./ControlBar.jsx";
+import { BrandLogo } from "./BrandLogo.jsx";
 import { UserPanel } from "./UserPanel.jsx";
 import { VideoTile } from "./VideoTile.jsx";
 
@@ -124,10 +125,10 @@ export function MeetingRoom({ meeting }) {
   const ConnectionIcon = connectionTone.icon;
 
   return (
-    <main className="relative flex h-dvh min-h-screen flex-col overflow-hidden bg-[#080b13]/72">
+    <main className="room-shell relative flex h-dvh min-h-screen flex-col overflow-hidden bg-[#080b13]/72">
       <header className="flex min-h-16 flex-wrap items-center gap-3 border-b border-white/8 px-3 py-2 sm:px-5">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">Conectate Live</p>
+        <div className="flex min-w-0 items-center gap-3">
+          <BrandLogo compact pulse tagline="" />
           <div className="flex min-w-0 items-center gap-2 text-xs text-slate-300">
             <span className="truncate">Reunion {meeting.roomId}</span>
             <button
@@ -158,7 +159,7 @@ export function MeetingRoom({ meeting }) {
       </header>
 
       {owner ? (
-        <section className="border-b border-white/8 bg-[#0a1020]/88 px-3 py-2 sm:px-5">
+        <section className="border-b border-white/8 bg-[#0a1020]/88 px-3 py-2 backdrop-blur-sm sm:px-5">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-md border border-white/10 bg-white/[0.055] px-3 py-2 text-slate-300">
               Codigo unico{" "}
@@ -264,6 +265,10 @@ export function MeetingRoom({ meeting }) {
                 <p className="mt-2 text-sm text-slate-300">
                   Comparte el enlace para recibir solicitudes de entrada.
                 </p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <span className="brand-skeleton h-16 rounded-md" />
+                  <span className="brand-skeleton h-16 rounded-md" />
+                </div>
               </div>
             </section>
           ) : null}

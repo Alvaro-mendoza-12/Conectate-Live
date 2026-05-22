@@ -23,7 +23,7 @@ body,
 
 body {
   margin: 0;
-  background: #07090f;
+  background: linear-gradient(145deg, #05070f 0%, #071221 48%, #05070e 100%);
   color: #f7f8fb;
 }
 
@@ -34,6 +34,110 @@ input {
 
 video {
   background: #04060b;
+}
+
+.product-shell,
+.room-shell {
+  isolation: isolate;
+}
+
+.soft-grid {
+  background-image:
+    linear-gradient(rgba(125, 227, 255, 0.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 227, 255, 0.075) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(90deg, black, transparent 78%);
+}
+
+.glass-panel,
+.surface-panel {
+  background:
+    linear-gradient(145deg, rgba(13, 21, 39, 0.93), rgba(7, 14, 28, 0.88)),
+    rgba(10, 16, 32, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
+.brand-mark {
+  box-shadow:
+    0 16px 42px rgba(24, 212, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.brand-pulse {
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(158, 245, 255, 0.42);
+  border-radius: inherit;
+  animation: signal-pulse 2.6s ease-out infinite;
+}
+
+.live-badge {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(153, 246, 255, 0.2);
+  border-radius: 0.375rem;
+  background: rgba(10, 42, 56, 0.62);
+  padding: 0 0.75rem;
+  color: #cffafe;
+  font-size: 0.875rem;
+  backdrop-filter: blur(12px);
+}
+
+.live-badge span {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 999px;
+  background: #5eead4;
+  box-shadow: 0 0 0 5px rgba(94, 234, 212, 0.13);
+}
+
+.motion-lift:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.motion-lift:not(:disabled):active {
+  transform: translateY(0);
+}
+
+.brand-skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.brand-skeleton::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 5%,
+    rgba(154, 240, 255, 0.18) 42%,
+    transparent 78%
+  );
+  content: "";
+  transform: translateX(-100%);
+  animation: shimmer 1.8s linear infinite;
+}
+
+.video-tile {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 48px rgba(0, 0, 0, 0.18);
+}
+
+.speaking-badge {
+  box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.34);
+  animation: speaking-ring 1.3s ease-out infinite;
+}
+
+::selection {
+  background: rgba(103, 232, 249, 0.28);
+  color: #ffffff;
 }
 
 .animate-rise {
@@ -56,8 +160,39 @@ video {
   }
 }
 
+@keyframes signal-pulse {
+  from {
+    opacity: 0.75;
+    transform: scale(0.82);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes speaking-ring {
+  to {
+    box-shadow: 0 0 0 9px rgba(94, 234, 212, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-rise {
+  .animate-rise,
+  .brand-pulse,
+  .brand-skeleton::after,
+  .speaking-badge {
     animation: none;
+  }
+
+  .motion-lift:not(:disabled):hover {
+    transform: none;
   }
 }
