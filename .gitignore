@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Builds and generated output
+dist/
+**/dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Logs and PM2 runtime output
+logs/*
+!logs/.gitkeep
+*.log
+*.pid
+*.pid.lock
+pids/
+.pm2/
+pm2*.json
+
+# Tool caches
+.vite/
+.turbo/
+.cache/
+.eslintcache
+.npm/
+.vercel/
+
+# OS, editors, and local workspace metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*.tmp
+*.bak
+.idea/
+.vscode/
+.qodo/
+
