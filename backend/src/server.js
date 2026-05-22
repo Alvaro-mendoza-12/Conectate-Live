@@ -4,8 +4,10 @@ import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 import {
+  addWhiteboardStroke,
   addUser,
   addJoinRequest,
+  clearWhiteboard,
   closeRoom,
   createRoom,
   getJoinRequest,
@@ -15,16 +17,24 @@ import {
   getRoomStats,
   getRoomUsers,
   getUser,
+  getWhiteboardSnapshot,
   isRoomOwner,
   removeJoinRequest,
   removeUser,
   shareRoom
 } from "./roomStore.js";
 import {
+  getIdentityCapabilities,
+  resolveSocketIdentity
+} from "./identityProvider.js";
+import { canPerformRoomAction, roomActions } from "./meetingPermissions.js";
+import { getRuntimeMetrics, trackMetric } from "./runtimeMetrics.js";
+import {
   isIceCandidate,
   isSessionDescription,
   normalizeMessage,
   normalizeRoomId,
+  normalizeWhiteboardStroke,
   normalizeUsername
 } from "./validation.js";
 
@@ -48,6 +58,8 @@ const chatWindowMs = 8_000;
 const maxChatMessagesPerWindow = 6;
 const lobbyWindowMs = 12_000;
 const maxLobbyActionsPerWindow = 8;
+const whiteboardWindowMs = 2_000;
+const maxWhiteboardActionsPerWindow = 80;
 
 function log(level, event, details = {}) {
   const priority = logPriorities[level] ?? logPriorities.info;
@@ -136,6 +148,15 @@ function allowLobbyAction(socket) {
   );
 }
 
+function allowWhiteboardAction(socket) {
+  return allowSocketAction(
+    socket,
+    "whiteboard",
+    whiteboardWindowMs,
+    maxWhiteboardActionsPerWindow
+  );
+}
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -151,6 +172,10 @@ app.disable("x-powered-by");
 app.set("trust proxy", trustProxy);
 app.use(cors({ origin: allowOrigin }));
 app.use(express.json({ limit: "16kb" }));
+app.use((_request, _response, next) => {
+  trackMetric("http.requests");
+  next();
+});
 app.use((_request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
@@ -174,6 +199,49 @@ app.get("/health", (_request, response) => {
   });
 });
 
+app.get("/metrics", (_request, response) => {
+  response.json({
+    service: "conectate-live-backend",
+    ...getRuntimeMetrics(getRoomStats())
+  });
+});
+
+app.get("/api/capabilities", (_request, response) => {
+  response.json({
+    auth: getIdentityCapabilities(),
+    meetings: {
+      history: "browser",
+      persistence: "memory",
+      scheduling: "browser"
+    },
+    realtime: {
+      media: "webrtc-mesh",
+      signaling: "socket.io",
+      whiteboard: "memory"
+    },
+    status: "ok"
+  });
+});
+
+app.get("/api/rooms/:roomId/status", (request, response) => {
+  const roomId = normalizeRoomId(request.params.roomId);
+
+  if (!roomId) {
+    response.status(400).json({
+      error: "Codigo de sala invalido.",
+      status: "error"
+    });
+    return;
+  }
+
+  response.json({
+    approvalRequired: true,
+    roomId,
+    state: getRoomState(roomId),
+    status: "ok"
+  });
+});
+
 function broadcastUsers(roomId) {
   io.to(roomId).emit("room-users", getRoomUsers(roomId));
 }
@@ -187,7 +255,8 @@ function publicRoomPayload(user, roomId) {
       joinedAt: user.joinedAt,
       role: user.role
     },
-    users: getRoomUsers(roomId)
+    users: getRoomUsers(roomId),
+    whiteboard: getWhiteboardSnapshot(roomId)
   };
 }
 
@@ -220,6 +289,7 @@ function removePendingRequest(socket, reason) {
 function admitSocketToRoom(socket, roomId, username, role = "guest") {
   const user = {
     id: socket.id,
+    identity: socket.data.identity,
     username,
     roomId,
     role,
@@ -293,6 +363,7 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
       nextOwnerSocketId: nextOwner.id,
       requests: getRoomJoinRequests(user.roomId).length
     });
+    trackMetric("rooms.ownerTransferred");
   }
 
   if (user.role === "owner" && !nextOwner) {
@@ -356,11 +427,16 @@ function relaySignal(socket, targetId, eventName, payload, callback) {
     socketId: socket.id,
     targetId
   });
+  trackMetric(`signals.${eventName}`);
   acknowledge(callback, { ok: true });
 }
 
 io.on("connection", (socket) => {
+  socket.data.identity = resolveSocketIdentity(socket);
+  trackMetric("sockets.connected");
   log("info", "socket_connected", {
+    identityProvider: socket.data.identity.provider,
+    sessionId: socket.data.identity.sessionId,
     socketId: socket.id,
     transport: socket.conn.transport.name
   });
@@ -401,6 +477,7 @@ io.on("connection", (socket) => {
 
     const user = {
       id: socket.id,
+      identity: socket.data.identity,
       username,
       role: "owner",
       joinedAt: new Date().toISOString()
@@ -441,6 +518,7 @@ io.on("connection", (socket) => {
       username: owner.username,
       ...getRoomStats()
     });
+    trackMetric("rooms.created");
   });
 
   socket.on("request-join", (payload, callback) => {
@@ -497,6 +575,7 @@ io.on("connection", (socket) => {
     leaveCurrentRoom(socket, "request-join");
     const request = addJoinRequest({
       id: crypto.randomUUID(),
+      identity: socket.data.identity,
       roomId,
       socketId: socket.id,
       username,
@@ -520,13 +599,19 @@ io.on("connection", (socket) => {
       ownerSocketId: owner.id,
       ...getRoomStats()
     });
+    trackMetric("joins.requested");
   });
 
   socket.on("respond-join-request", (payload, callback) => {
+    const owner = getUser(socket.id);
     const roomId = socket.data.roomId;
     const request = getJoinRequest(payload?.socketId);
 
-    if (!roomId || !isRoomOwner(socket.id, roomId)) {
+    if (
+      !roomId ||
+      !isRoomOwner(socket.id, roomId) ||
+      !canPerformRoomAction(owner, roomActions.admit)
+    ) {
       acknowledge(callback, {
         ok: false,
         error: "Solo el owner puede responder solicitudes."
@@ -569,6 +654,7 @@ io.on("connection", (socket) => {
         targetId: targetSocket.id,
         username: request.username
       });
+      trackMetric("joins.rejected");
       return;
     }
 
@@ -582,6 +668,7 @@ io.on("connection", (socket) => {
       targetId: targetSocket.id,
       username: request.username
     });
+    trackMetric("joins.approved");
   });
 
   socket.on("chat-message", (payload, callback) => {
@@ -611,6 +698,7 @@ io.on("connection", (socket) => {
         ok: false,
         error: "Espera un momento antes de enviar mas mensajes."
       });
+      trackMetric("rateLimits.chat");
       return;
     }
 
@@ -632,6 +720,7 @@ io.on("connection", (socket) => {
       length: text.length
     });
     acknowledge(callback, { ok: true });
+    trackMetric("chat.sent");
   });
 
   socket.on("moderate-user", (payload, callback) => {
@@ -639,7 +728,11 @@ io.on("connection", (socket) => {
     const target = getUser(payload?.targetId);
     const action = String(payload?.action ?? "");
 
-    if (!owner || owner.role !== "owner" || !target || target.roomId !== owner.roomId) {
+    if (
+      !canPerformRoomAction(owner, roomActions.moderate) ||
+      !target ||
+      target.roomId !== owner.roomId
+    ) {
       log("warn", "moderation_rejected", {
         action,
         ownerSocketId: socket.id,
@@ -675,6 +768,7 @@ io.on("connection", (socket) => {
         ownerSocketId: owner.id,
         targetId: target.id
       });
+      trackMetric("moderation.muted");
       return;
     }
 
@@ -696,6 +790,7 @@ io.on("connection", (socket) => {
         ownerSocketId: owner.id,
         targetId: target.id
       });
+      trackMetric("moderation.kicked");
       return;
     }
 
@@ -708,7 +803,7 @@ io.on("connection", (socket) => {
   socket.on("close-room", (_payload, callback) => {
     const owner = getUser(socket.id);
 
-    if (!owner || owner.role !== "owner") {
+    if (!canPerformRoomAction(owner, roomActions.close)) {
       acknowledge(callback, {
         ok: false,
         error: "Solo el owner puede cerrar la reunion."
@@ -754,6 +849,75 @@ io.on("connection", (socket) => {
       requests: closedRoom.requests.length,
       ...getRoomStats()
     });
+    trackMetric("rooms.closed");
+  });
+
+  socket.on("whiteboard-stroke", (payload, callback) => {
+    const user = getUser(socket.id);
+    const stroke = normalizeWhiteboardStroke(payload?.stroke);
+
+    if (!user || !stroke) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Trazo de pizarra invalido."
+      });
+      return;
+    }
+
+    if (!allowWhiteboardAction(socket)) {
+      acknowledge(callback, {
+        ok: false,
+        error: "La pizarra recibio demasiados trazos seguidos."
+      });
+      trackMetric("rateLimits.whiteboard");
+      return;
+    }
+
+    const sharedStroke = addWhiteboardStroke(user.roomId, {
+      ...stroke,
+      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      user: {
+        id: user.id,
+        username: user.username
+      }
+    });
+
+    if (!sharedStroke) {
+      acknowledge(callback, {
+        ok: false,
+        error: "La sala ya no esta disponible."
+      });
+      return;
+    }
+
+    socket.to(user.roomId).emit("whiteboard-stroke", sharedStroke);
+    acknowledge(callback, { ok: true });
+    trackMetric("whiteboard.strokes");
+  });
+
+  socket.on("whiteboard-clear", (_payload, callback) => {
+    const owner = getUser(socket.id);
+
+    if (!canPerformRoomAction(owner, roomActions.clearBoard)) {
+      acknowledge(callback, {
+        ok: false,
+        error: "Solo el owner puede limpiar la pizarra."
+      });
+      return;
+    }
+
+    clearWhiteboard(owner.roomId);
+    io.to(owner.roomId).emit("whiteboard-cleared", {
+      by: owner.username,
+      roomId: owner.roomId
+    });
+    io.to(owner.roomId).emit(
+      "system-message",
+      systemMessage(`${owner.username} limpio la pizarra.`)
+    );
+    acknowledge(callback, { ok: true });
+    trackMetric("whiteboard.cleared");
   });
 
   socket.on("webrtc-offer", (payload, callback) => {
@@ -834,6 +998,7 @@ io.on("connection", (socket) => {
       socketId: socket.id,
       reason
     });
+    trackMetric("sockets.disconnected");
   });
 });
 

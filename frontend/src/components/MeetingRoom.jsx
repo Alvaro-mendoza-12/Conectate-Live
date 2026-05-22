@@ -4,6 +4,7 @@ import {
   Crown,
   Link2,
   MessageSquare,
+  PenLine,
   Radio,
   RefreshCw,
   Signal,
@@ -15,11 +16,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { meetingLink } from "../lib/room.js";
+import { useLocalRecording } from "../hooks/useLocalRecording.js";
+import { useMeetingData } from "../providers/MeetingDataProvider.jsx";
 import { ChatPanel } from "./ChatPanel.jsx";
 import { ControlBar } from "./ControlBar.jsx";
 import { BrandLogo } from "./BrandLogo.jsx";
 import { UserPanel } from "./UserPanel.jsx";
 import { VideoTile } from "./VideoTile.jsx";
+import { WhiteboardPanel } from "./WhiteboardPanel.jsx";
 
 function ViewButton({ active, children, icon: Icon, onClick }) {
   return (
@@ -86,13 +90,21 @@ function AdmissionDock({ meeting }) {
 
 export function MeetingRoom({ meeting }) {
   const [mobilePanel, setMobilePanel] = useState("video");
+  const [sidePanel, setSidePanel] = useState("chat");
   const [copied, setCopied] = useState(false);
   const owner = meeting.self.role === "owner";
   const shareLink = meetingLink(meeting.roomId);
+  const recording = useLocalRecording(meeting.localStream);
+  const { rememberInvitation } = useMeetingData();
 
   async function copyRoom() {
     try {
       await navigator.clipboard.writeText(shareLink);
+      rememberInvitation({
+        roomId: meeting.roomId,
+        source: "copied",
+        title: `Invitacion ${meeting.roomId}`
+      });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1_200);
     } catch {
@@ -156,6 +168,12 @@ export function MeetingRoom({ meeting }) {
                 Nuevo anfitrion
               </span>
             ) : null}
+            {recording.active ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-rose-300/14 px-2 py-1 text-rose-100">
+                <Radio size={12} />
+                Grabando local
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -200,8 +218,13 @@ export function MeetingRoom({ meeting }) {
           {meeting.error}
         </p>
       ) : null}
+      {recording.error ? (
+        <p className="border-b border-amber-300/15 bg-amber-300/10 px-4 py-2 text-sm text-amber-50">
+          {recording.error}
+        </p>
+      ) : null}
 
-      <nav className="grid grid-cols-3 gap-1 border-b border-white/8 p-2 lg:hidden">
+      <nav className="grid grid-cols-4 gap-1 border-b border-white/8 p-2 lg:hidden">
         <ViewButton
           active={mobilePanel === "video"}
           icon={Video}
@@ -222,6 +245,13 @@ export function MeetingRoom({ meeting }) {
           onClick={() => setMobilePanel("users")}
         >
           Usuarios
+        </ViewButton>
+        <ViewButton
+          active={mobilePanel === "board"}
+          icon={PenLine}
+          onClick={() => setMobilePanel("board")}
+        >
+          Pizarra
         </ViewButton>
       </nav>
 
@@ -283,12 +313,46 @@ export function MeetingRoom({ meeting }) {
           ) : null}
         </section>
 
-        <ChatPanel
-          className={`${mobilePanel === "chat" ? "flex" : "hidden"} lg:flex`}
-          messages={meeting.messages}
-          onSend={meeting.sendMessage}
-          self={meeting.self}
-        />
+        <section
+          className={`${
+            ["board", "chat"].includes(mobilePanel) ? "flex" : "hidden"
+          } min-h-0 flex-col gap-2 lg:flex`}
+        >
+          <nav className="hidden grid-cols-2 gap-1 rounded-lg border border-white/8 bg-black/18 p-1 lg:grid">
+            <ViewButton
+              active={sidePanel === "chat"}
+              icon={MessageSquare}
+              onClick={() => setSidePanel("chat")}
+            >
+              Chat
+            </ViewButton>
+            <ViewButton
+              active={sidePanel === "board"}
+              icon={PenLine}
+              onClick={() => setSidePanel("board")}
+            >
+              Pizarra
+            </ViewButton>
+          </nav>
+
+          <ChatPanel
+            className={`${
+              mobilePanel === "chat" ? "flex" : "hidden"
+            } ${sidePanel === "chat" ? "lg:flex" : "lg:hidden"}`}
+            messages={meeting.messages}
+            onSend={meeting.sendMessage}
+            self={meeting.self}
+          />
+          <WhiteboardPanel
+            canClear={owner}
+            className={`${
+              mobilePanel === "board" ? "flex" : "hidden"
+            } ${sidePanel === "board" ? "lg:flex" : "lg:hidden"}`}
+            onClear={meeting.clearMeetingWhiteboard}
+            onStroke={meeting.sendWhiteboardStroke}
+            strokes={meeting.whiteboardStrokes}
+          />
+        </section>
       </section>
 
       <ControlBar
@@ -301,6 +365,7 @@ export function MeetingRoom({ meeting }) {
         onToggleCamera={meeting.toggleCamera}
         onToggleMic={meeting.toggleMic}
         onToggleScreen={meeting.toggleScreenShare}
+        recording={recording}
       />
 
       <AdmissionDock meeting={meeting} />

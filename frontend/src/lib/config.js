@@ -20,7 +20,9 @@ function parseIceServers(value) {
 export const socketUrl =
   import.meta.env.VITE_SOCKET_URL?.trim() || "http://localhost:4000";
 
+export const apiBaseUrl =
+  import.meta.env.VITE_API_URL?.trim() || socketUrl;
+
 export const iceServers = parseIceServers(
   import.meta.env.VITE_ICE_SERVERS_JSON
 );
-

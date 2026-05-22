@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
-import { iceServers, socketUrl } from "../lib/config.js";
-import {
-  rememberRecentMeeting,
-  updateRecentMeetingParticipants
-} from "../lib/recentMeetings.js";
+import { iceServers } from "../lib/config.js";
 import { syncRoomToLocation } from "../lib/room.js";
+import { useAuth } from "../providers/AuthProvider.jsx";
+import { useMeetingData } from "../providers/MeetingDataProvider.jsx";
+import { useRealtime } from "../providers/RealtimeProvider.jsx";
 
 const initialMediaState = {
   ready: false,
@@ -17,6 +15,7 @@ const peerRecoveryDelayMs = 3_500;
 const peerCleanupDelayMs = 30_000;
 const speakingSampleMs = 220;
 const maxQueuedCandidates = 64;
+const maxWhiteboardStrokes = 600;
 
 function realtimeLog(level, event, details = {}) {
   const logger =
@@ -116,7 +115,16 @@ function remotePeerDefaults(peerId) {
   };
 }
 
+function localStrokeId() {
+  return globalThis.crypto?.randomUUID
+    ? crypto.randomUUID()
+    : `stroke-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export function useMeeting() {
+  const { profile } = useAuth();
+  const meetingData = useMeetingData();
+  const realtime = useRealtime();
   const [status, setStatus] = useState("idle");
   const [connected, setConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState("idle");
@@ -133,6 +141,7 @@ export function useMeeting() {
   const [error, setError] = useState("");
   const [endState, setEndState] = useState(null);
   const [ownerPromotion, setOwnerPromotion] = useState(null);
+  const [whiteboardStrokes, setWhiteboardStrokes] = useState([]);
 
   const socketRef = useRef(null);
   const sessionRef = useRef(null);
@@ -148,6 +157,13 @@ export function useMeeting() {
 
   function appendMessage(message) {
     setMessages((current) => [...current.slice(-149), message]);
+  }
+
+  function appendWhiteboardStroke(stroke) {
+    setWhiteboardStrokes((current) => [
+      ...current.slice(-(maxWhiteboardStrokes - 1)),
+      stroke
+    ]);
   }
 
   function setCurrentSelf(nextSelf) {
@@ -191,7 +207,7 @@ export function useMeeting() {
     }
 
     if (sessionRef.current?.joined && sessionRef.current.roomId) {
-      updateRecentMeetingParticipants(sessionRef.current.roomId, nextUsers.length);
+      meetingData.updateParticipants(sessionRef.current.roomId, nextUsers.length);
     }
 
     const activeIds = new Set(nextUsers.map((user) => user.id));
@@ -795,6 +811,7 @@ export function useMeeting() {
     setRoomId(response.roomId);
     setJoinRequests([]);
     setEndState(null);
+    setWhiteboardStrokes(response.whiteboard ?? []);
 
     if (response.self.role !== "owner" || sessionRef.current?.mode === "create") {
       setOwnerPromotion(null);
@@ -802,9 +819,10 @@ export function useMeeting() {
 
     setStatus("joined");
     syncRoomToLocation(response.roomId);
-    rememberRecentMeeting({
+    meetingData.rememberAdmission({
       mode: sessionRef.current?.mode,
       participantCount: response.users.length,
+      profileId: profile.id,
       role: response.self.role,
       roomId: response.roomId,
       username: response.self.username
@@ -980,6 +998,8 @@ export function useMeeting() {
     });
     socket.on("system-message", appendMessage);
     socket.on("chat-message", appendMessage);
+    socket.on("whiteboard-stroke", appendWhiteboardStroke);
+    socket.on("whiteboard-cleared", () => setWhiteboardStrokes([]));
     socket.on("peer-joined", (user) => {
       setUsers((current) => {
         const next = current.some((entry) => entry.id === user.id)
@@ -1014,15 +1034,7 @@ export function useMeeting() {
       return socketRef.current;
     }
 
-    const socket = io(socketUrl, {
-      autoConnect: false,
-      reconnection: true,
-      reconnectionAttempts: 12,
-      reconnectionDelay: 700,
-      reconnectionDelayMax: 5_000,
-      timeout: 8_000,
-      transports: ["websocket", "polling"]
-    });
+    const socket = realtime.createSocket();
 
     socketRef.current = socket;
     bindSocket(socket);
@@ -1251,6 +1263,40 @@ export function useMeeting() {
     return response.ok;
   }
 
+  function sendWhiteboardStroke(stroke) {
+    if (!socketRef.current?.connected || !selfRef.current) {
+      return false;
+    }
+
+    appendWhiteboardStroke({
+      ...stroke,
+      createdAt: new Date().toISOString(),
+      id: localStrokeId(),
+      user: {
+        id: selfRef.current.id,
+        username: selfRef.current.username
+      }
+    });
+    socketRef.current.emit("whiteboard-stroke", { stroke });
+    return true;
+  }
+
+  async function clearMeetingWhiteboard() {
+    if (!socketRef.current?.connected) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "whiteboard-clear", {});
+
+    if (!response.ok) {
+      setError(response.error);
+      return false;
+    }
+
+    setWhiteboardStrokes([]);
+    return true;
+  }
+
   async function toggleMic() {
     const stream = localStreamRef.current ?? (await requestLocalMedia());
     const track = stream?.getAudioTracks()[0];
@@ -1437,6 +1483,7 @@ export function useMeeting() {
     stopLocalStream();
     clearSpeakingMeters();
     usersRef.current = [];
+    setWhiteboardStrokes([]);
 
     if (!resetState) {
       return;
@@ -1486,6 +1533,8 @@ export function useMeeting() {
     previewStream,
     reconnectCall,
     respondToJoinRequest,
+    clearMeetingWhiteboard,
+    sendWhiteboardStroke,
     remoteMedia: remoteMediaEntries,
     requestLocalMedia,
     retrySocketConnection,
@@ -1500,6 +1549,7 @@ export function useMeeting() {
     toggleRemoteMute,
     toggleScreenShare,
     users,
+    whiteboardStrokes,
     leaveMeeting: destroyMeeting
   };
 }

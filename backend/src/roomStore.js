@@ -4,6 +4,7 @@ const requestsBySocketId = new Map();
 const endedRooms = new Map();
 const endedRoomTtlMs = Number(process.env.ENDED_ROOM_TTL_MS || 6 * 60 * 60 * 1000);
 const maxEndedRooms = Number(process.env.MAX_ENDED_ROOMS || 500);
+const maxWhiteboardStrokes = Number(process.env.MAX_WHITEBOARD_STROKES || 600);
 
 function publicUser(user) {
   return {
@@ -30,6 +31,7 @@ function createRoomState(roomId, ownerId) {
     id: roomId,
     ownerId,
     createdAt,
+    whiteboard: [],
     users: new Map(),
     requests: new Map()
   };
@@ -178,6 +180,33 @@ export function getRoomUsers(roomId) {
     .map(publicUser);
 }
 
+export function getWhiteboardSnapshot(roomId) {
+  return [...(rooms.get(roomId)?.whiteboard ?? [])];
+}
+
+export function addWhiteboardStroke(roomId, stroke) {
+  const room = rooms.get(roomId);
+
+  if (!room) {
+    return null;
+  }
+
+  room.whiteboard.push(stroke);
+  room.whiteboard.splice(0, Math.max(0, room.whiteboard.length - maxWhiteboardStrokes));
+  return stroke;
+}
+
+export function clearWhiteboard(roomId) {
+  const room = rooms.get(roomId);
+
+  if (!room) {
+    return false;
+  }
+
+  room.whiteboard.length = 0;
+  return true;
+}
+
 export function removeUser(socketId) {
   const user = usersBySocketId.get(socketId);
 
@@ -202,6 +231,7 @@ export function removeUser(socketId) {
   if (room?.users.size === 0) {
     room.requests.forEach((request) => requestsBySocketId.delete(request.socketId));
     room.requests.clear();
+    room.whiteboard.length = 0;
     room.users.clear();
     rooms.delete(user.roomId);
   }
@@ -226,6 +256,7 @@ export function closeRoom(roomId) {
   requests.forEach((request) => requestsBySocketId.delete(request.socketId));
   room.users.clear();
   room.requests.clear();
+  room.whiteboard.length = 0;
   rooms.delete(roomId);
   rememberEndedRoom(roomId, "owner-closed");
 

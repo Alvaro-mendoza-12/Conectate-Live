@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CalendarClock,
+  CalendarPlus,
   Clock3,
   Copy,
   History,
@@ -13,13 +14,14 @@ import {
   WandSparkles
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { readRecentMeetings } from "../lib/recentMeetings.js";
 import {
   createRoomCode,
   meetingLink,
   roomFromInput,
   roomFromLocation
 } from "../lib/room.js";
+import { useAuth } from "../providers/AuthProvider.jsx";
+import { useMeetingData } from "../providers/MeetingDataProvider.jsx";
 import { BrandLogo } from "./BrandLogo.jsx";
 
 const workspaceCards = [
@@ -61,6 +63,21 @@ function looksRecentlyLive(value) {
   return Date.now() - new Date(value).getTime() < 15 * 60 * 1000;
 }
 
+function defaultScheduleValue() {
+  const nextHour = new Date(Date.now() + 60 * 60 * 1000);
+  const offsetMs = nextHour.getTimezoneOffset() * 60 * 1000;
+
+  nextHour.setMinutes(0, 0, 0);
+  return new Date(nextHour.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function dateTimeLabel(value) {
+  return new Intl.DateTimeFormat("es", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
 function FeatureChip({ icon: Icon, children }) {
   return (
     <span className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm text-slate-100 shadow-sm shadow-black/15 backdrop-blur-sm transition hover:border-cyan-100/25 hover:bg-black/38">
@@ -71,11 +88,22 @@ function FeatureChip({ icon: Icon, children }) {
 }
 
 export function ProductHome({ busy = false, error, onPrepare }) {
-  const [username, setUsername] = useState("");
-  const [joinValue, setJoinValue] = useState(roomFromLocation());
+  const { profile, updateGuestProfile } = useAuth();
+  const {
+    dashboard,
+    rememberInvitation,
+    scheduleMeeting
+  } = useMeetingData();
+  const locationRoom = useMemo(roomFromLocation, []);
+  const [username, setUsername] = useState(profile.displayName);
+  const [joinValue, setJoinValue] = useState(locationRoom);
   const [formError, setFormError] = useState("");
   const [dashboardNotice, setDashboardNotice] = useState("");
-  const [recentMeetings, setRecentMeetings] = useState(readRecentMeetings);
+  const [scheduleTitle, setScheduleTitle] = useState("Reunion de estudio");
+  const [scheduleTime, setScheduleTime] = useState(defaultScheduleValue);
+  const recentMeetings = dashboard.history;
+  const scheduledMeetings = dashboard.scheduled;
+  const invitations = dashboard.invitations;
   const nextCode = useMemo(createRoomCode, []);
   const inviteRoom = useMemo(() => roomFromInput(joinValue), [joinValue]);
   const participantFootprint = recentMeetings.reduce(
@@ -84,17 +112,27 @@ export function ProductHome({ busy = false, error, onPrepare }) {
   );
 
   useEffect(() => {
-    function refreshHistory() {
-      setRecentMeetings(readRecentMeetings());
+    if (!username && profile.displayName) {
+      setUsername(profile.displayName);
     }
+  }, [profile.displayName, username]);
 
-    window.addEventListener("storage", refreshHistory);
-    return () => window.removeEventListener("storage", refreshHistory);
-  }, []);
+  useEffect(() => {
+    if (locationRoom) {
+      rememberInvitation({
+        roomId: roomFromInput(locationRoom),
+        source: "link",
+        title: "Enlace recibido"
+      });
+    }
+  }, [locationRoom, rememberInvitation]);
 
   function validateName() {
-    if (username.trim()) {
+    const displayName = username.trim();
+
+    if (displayName) {
       setFormError("");
+      updateGuestProfile({ displayName });
       return true;
     }
 
@@ -151,10 +189,33 @@ export function ProductHome({ busy = false, error, onPrepare }) {
   async function copyMeetingLink(meeting) {
     try {
       await navigator.clipboard.writeText(meetingLink(meeting.roomId));
+      rememberInvitation({
+        roomId: meeting.roomId,
+        source: "copied",
+        title: meeting.title || `Invitacion ${meeting.roomId}`
+      });
       setDashboardNotice(`Enlace de ${meeting.roomId} copiado.`);
     } catch {
       setDashboardNotice("No se pudo copiar. Abre la sala y copia el enlace alli.");
     }
+  }
+
+  function createScheduledMeeting(event) {
+    event.preventDefault();
+
+    const meeting = scheduleMeeting({
+      hostProfileId: profile.id,
+      roomId: createRoomCode(),
+      scheduledFor: scheduleTime,
+      title: scheduleTitle
+    });
+
+    if (!meeting) {
+      setDashboardNotice("No se pudo guardar la reunion local.");
+      return;
+    }
+
+    setDashboardNotice(`Agenda local lista para ${meeting.roomId}.`);
   }
 
   return (
@@ -212,11 +273,15 @@ export function ProductHome({ busy = false, error, onPrepare }) {
               <div>
                 <p className="text-sm font-medium text-cyan-100">Entrar ahora</p>
                 <p className="mt-1 text-sm text-slate-300">
-                  Sin correo ni contrasena.
+                  Perfil invitado standalone.
                 </p>
               </div>
-              <span className="grid h-10 w-10 place-items-center rounded-md bg-white/8 text-slate-100">
-                <Video size={18} />
+              <span
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-white/8 px-3 text-xs text-slate-100"
+                title="Session guest guardada en este navegador hasta activar auth Conectate."
+              >
+                <Video size={16} />
+                Guest
               </span>
             </div>
 
@@ -305,7 +370,7 @@ export function ProductHome({ busy = false, error, onPrepare }) {
             </button>
           </div>
 
-          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+          <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <span className="rounded-md border border-white/8 bg-black/18 px-3 py-2 text-sm text-slate-200">
               <History className="mr-2 inline text-cyan-100" size={15} />
               {recentMeetings.length} salas locales
@@ -319,6 +384,10 @@ export function ProductHome({ busy = false, error, onPrepare }) {
               {recentMeetings[0]
                 ? relativeTime(recentMeetings[0].lastJoinedAt)
                 : "sin actividad"}
+            </span>
+            <span className="rounded-md border border-white/8 bg-black/18 px-3 py-2 text-sm text-slate-200">
+              <CalendarClock className="mr-2 inline text-cyan-100" size={15} />
+              {scheduledMeetings.length} en agenda
             </span>
           </div>
 
@@ -435,6 +504,96 @@ export function ProductHome({ busy = false, error, onPrepare }) {
               ))}
             </div>
           )}
+
+          <section className="mt-5 grid gap-3 border-t border-white/8 pt-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="font-medium text-white">Agenda local</h3>
+                <span
+                  className="rounded-md bg-white/7 px-2 py-1 text-xs text-slate-300"
+                  title="Se reemplazara por backend persistente en la integracion futura."
+                >
+                  Mock elegante
+                </span>
+              </div>
+
+              {scheduledMeetings.length ? (
+                <div className="grid gap-2">
+                  {scheduledMeetings.slice(0, 3).map((meeting) => (
+                    <article
+                      className="flex flex-wrap items-center gap-3 rounded-lg border border-white/9 bg-black/18 p-3"
+                      key={meeting.roomId}
+                    >
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-teal-300/14 text-teal-100">
+                        <CalendarClock size={18} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-white">{meeting.title}</p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          {dateTimeLabel(meeting.scheduledFor)} - {meeting.roomId}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          className="inline-flex h-9 items-center gap-1 rounded-md bg-cyan-300 px-3 text-sm font-medium text-slate-950 hover:bg-cyan-200"
+                          onClick={() => createFastMeeting(meeting.roomId)}
+                          title="Crear esta sala programada ahora"
+                          type="button"
+                        >
+                          <Video size={15} />
+                          Iniciar
+                        </button>
+                        <button
+                          aria-label={`Copiar invitacion de ${meeting.roomId}`}
+                          className="grid h-9 w-9 place-items-center rounded-md bg-white/8 text-white hover:bg-white/14"
+                          onClick={() => copyMeetingLink(meeting)}
+                          title="Copiar invitacion"
+                          type="button"
+                        >
+                          <Copy size={15} />
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-white/12 bg-black/16 p-4 text-sm leading-6 text-slate-300">
+                  Programa una sala local y arranca con el mismo codigo cuando
+                  llegue la hora.
+                </div>
+              )}
+            </div>
+
+            <form
+              className="rounded-lg border border-white/9 bg-white/[0.045] p-3"
+              onSubmit={createScheduledMeeting}
+            >
+              <p className="inline-flex items-center gap-2 text-sm font-medium text-cyan-50">
+                <CalendarPlus size={16} />
+                Programar reunion
+              </p>
+              <input
+                className="mt-3 h-10 w-full rounded-md border border-white/10 bg-black/24 px-3 text-sm text-white outline-none focus:border-cyan-200/55"
+                maxLength={80}
+                onChange={(event) => setScheduleTitle(event.target.value)}
+                placeholder="Titulo"
+                value={scheduleTitle}
+              />
+              <input
+                className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/24 px-3 text-sm text-white outline-none focus:border-cyan-200/55"
+                onChange={(event) => setScheduleTime(event.target.value)}
+                type="datetime-local"
+                value={scheduleTime}
+              />
+              <button
+                className="motion-lift mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-cyan-100/20 bg-cyan-200/12 text-sm text-cyan-50 hover:bg-cyan-200/18"
+                type="submit"
+              >
+                <Plus size={15} />
+                Guardar agenda
+              </button>
+            </form>
+          </section>
         </div>
 
         <aside className="surface-panel rounded-lg border border-white/10 p-4 sm:p-5">
@@ -473,6 +632,51 @@ export function ProductHome({ busy = false, error, onPrepare }) {
               el formulario de entrada.
             </div>
           )}
+
+          <div className="mt-5 border-t border-white/8 pt-5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-slate-400">Invitaciones locales</p>
+              <span className="rounded-md bg-white/7 px-2 py-1 text-xs text-slate-300">
+                {invitations.length}
+              </span>
+            </div>
+            {invitations.length ? (
+              <div className="mt-3 grid gap-2">
+                {invitations.slice(0, 3).map((invitation) => (
+                  <article
+                    className="rounded-md bg-white/[0.055] p-3"
+                    key={invitation.roomId}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">
+                          {invitation.title}
+                        </p>
+                        <p className="mt-1 truncate font-mono text-xs text-cyan-100">
+                          {invitation.roomId}
+                        </p>
+                      </div>
+                      <span className="rounded-md bg-black/22 px-2 py-1 text-xs text-slate-300">
+                        {relativeTime(invitation.receivedAt)}
+                      </span>
+                    </div>
+                    <button
+                      className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1 rounded-md bg-white/8 text-sm text-white hover:bg-white/14"
+                      onClick={() => rejoinRecentMeeting(invitation)}
+                      type="button"
+                    >
+                      <ArrowRight size={15} />
+                      Abrir lobby
+                    </button>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 rounded-md bg-white/[0.045] px-3 py-2 text-sm leading-6 text-slate-300">
+                Los enlaces recibidos y copiados quedaran aqui por navegador.
+              </p>
+            )}
+          </div>
 
           <div className="mt-5">
             <p className="text-sm text-slate-400">Preparado para crecer</p>

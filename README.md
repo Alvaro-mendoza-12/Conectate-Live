@@ -6,7 +6,7 @@ y el audio, video y pantalla compartida viajan entre navegadores con WebRTC.
 
 ## Que incluye
 
-- Inicio Conectate Live con dashboard mock, reunion rapida y copia de enlace.
+- Inicio Conectate Live con dashboard local, agenda mock, invitaciones y copia de enlace.
 - Nombre temporal sin registro, correo ni password.
 - Lobby previo con preview, camara y microfono antes de publicar medios.
 - Salas dinamicas por nombre o codigo y sala de espera para invitados.
@@ -21,6 +21,9 @@ y el audio, video y pantalla compartida viajan entre navegadores con WebRTC.
 - Backend preparado para CORS de Vercel.
 - Recuperacion WebRTC por ICE restart y boton de reconexion manual.
 - Rate limit basico de chat por socket.
+- Providers y adapters standalone listos para auth JWT/API futura de Conectate.
+- Whiteboard realtime en RAM por sala y grabacion local del stream del navegador.
+- Metricas JSON ligeras para PM2 y debugging.
 
 ## Ubuntu rapido sin Docker
 
@@ -49,6 +52,12 @@ Health del backend:
 
 ```bash
 curl http://IP_DE_LA_VM:4000/health
+```
+
+Metricas del proceso:
+
+```bash
+curl http://IP_DE_LA_VM:4000/metrics
 ```
 
 Si el frontend vive en Vercel y solo quieres el backend en la VM:
@@ -95,7 +104,7 @@ conectate-live/
 ## Arquitectura
 
 El backend no transmite el audio ni el video. Socket.IO crea y mantiene las
-salas, solicitudes de acceso, mensajes, roles y signaling WebRTC entre pares.
+salas, solicitudes de acceso, mensajes, roles, whiteboard y signaling WebRTC entre pares.
 Cada navegador abre conexiones WebRTC con los demas participantes admitidos.
 
 Este enfoque consume poco backend y es bueno para uso privado en grupos
@@ -148,6 +157,8 @@ PORT=4000
 CLIENT_ORIGINS=http://localhost:4173,http://127.0.0.1:4173,http://localhost:5173,http://127.0.0.1:5173,https://tu-frontend.vercel.app
 LOG_LEVEL=info
 TRUST_PROXY=0
+IDENTITY_PROVIDER=guest
+MAX_WHITEBOARD_STROKES=600
 ```
 
 `CLIENT_ORIGINS` debe contener los origenes exactos que pueden conectar a
@@ -161,11 +172,13 @@ Cloudflare Tunnel y conserva `0` para LAN directa.
 
 ```env
 VITE_SOCKET_URL=http://localhost:4000
+VITE_API_URL=http://localhost:4000
 VITE_ICE_SERVERS_JSON=[{"urls":"stun:stun.l.google.com:19302"}]
 ```
 
 `VITE_SOCKET_URL` apunta al backend de Express/Socket.IO. Si el frontend esta en
 Vercel, el valor normal sera una URL HTTPS publica del backend o de un tunel.
+`VITE_API_URL` apunta al mismo backend hoy y separa el borde REST futuro.
 
 `VITE_ICE_SERVERS_JSON` acepta la configuracion de `RTCPeerConnection`. El STUN
 de ejemplo ayuda a descubrir rutas entre pares; para redes restrictivas agrega
@@ -209,8 +222,9 @@ para `frontend/dist`, sin Vite en modo desarrollo.
 2. Configura `frontend` como **Root Directory** para que Vercel lea el Vite app.
 3. Selecciona el preset Vite. El build es `npm run build` y la salida `dist`.
 4. Crea `VITE_SOCKET_URL` con la URL HTTPS publica del backend.
-5. Crea `VITE_ICE_SERVERS_JSON` si quieres cambiar STUN/TURN.
-6. Despliega otra vez despues de cambiar variables `VITE_*`; Vite las inserta en build.
+5. Crea `VITE_API_URL` con esa misma URL mientras el API siga en Express.
+6. Crea `VITE_ICE_SERVERS_JSON` si quieres cambiar STUN/TURN.
+7. Despliega otra vez despues de cambiar variables `VITE_*`; Vite las inserta en build.
 
 ## Backend local + frontend Vercel
 
@@ -230,12 +244,14 @@ proxy TLS, agrega el dominio de Vercel a `CLIENT_ORIGINS`, cambia
 
 ## Preparado para Conectate
 
-La sesion temporal se concentra en `useMeeting`, el signaling queda en el
-backend y la tienda en RAM vive en `roomStore`. Asi se puede agregar mas tarde:
+El modo actual no conecta Supabase ni auth real. `AuthProvider` crea perfiles
+guest locales, `MeetingDataProvider` guarda historial/agenda/invitaciones en el
+navegador y `RealtimeProvider` mantiene Socket.IO intercambiable. Asi se puede
+agregar mas tarde JWT, sesiones Conectate, amigos y permisos persistentes sin
+reescribir WebRTC.
 
-- JWT o login con cuentas Conectate antes de emitir create/request.
-- Historial real y lista de amigos fuera del store en RAM.
-- Videollamada privada reutilizando salas y moderacion.
+El orden de migracion esta en
+[docs/INTEGRACION_CONECTATE.md](docs/INTEGRACION_CONECTATE.md).
 
 ## Guia de Ubuntu y red
 
@@ -258,6 +274,12 @@ pm2 logs conectate-live-frontend --lines 120
 El backend registra conexiones, joins, leaves, CORS rechazado, signaling
 rechazado y longitud de mensajes. Cambia `LOG_LEVEL=debug` en `backend/.env`
 solo cuando necesites ver relays de signaling.
+
+Con el backend levantado puedes probar create/join, whiteboard snapshot y cierre:
+
+```bash
+SMOKE_SOCKET_URL=http://localhost:4000 npm run smoke:realtime --prefix backend
+```
 
 La UI muestra estado estable/inestable de la llamada, pantalla de desconexion,
 espera de participantes, mute remoto por participante y actividad de voz cuando

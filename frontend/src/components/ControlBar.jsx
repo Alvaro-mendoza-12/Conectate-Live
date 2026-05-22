@@ -4,8 +4,10 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  CircleDot,
   Power,
   RefreshCw,
+  Square,
   UsersRound,
   Video,
   VideoOff
@@ -40,7 +42,8 @@ export function ControlBar({
   onReconnectCall,
   onToggleCamera,
   onToggleMic,
-  onToggleScreen
+  onToggleScreen,
+  recording
 }) {
   return (
     <footer className="flex items-center justify-start gap-2 overflow-x-auto border-t border-white/8 bg-[#0a0d15]/94 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-center">
@@ -71,6 +74,21 @@ export function ControlBar({
       <ControlButton label="Reconectar llamada" onClick={onReconnectCall}>
         <RefreshCw size={19} />
       </ControlButton>
+
+      {recording.supported ? (
+        <ControlButton
+          active={recording.active}
+          danger={recording.active}
+          label={
+            recording.active
+              ? "Detener grabacion local"
+              : "Grabar pista local"
+          }
+          onClick={recording.active ? recording.stop : recording.start}
+        >
+          {recording.active ? <Square size={18} /> : <CircleDot size={19} />}
+        </ControlButton>
+      ) : null}
 
       <span className="mx-1 h-8 w-px bg-white/10 lg:hidden" />
 
