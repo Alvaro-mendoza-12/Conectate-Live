@@ -1368,8 +1368,10 @@ export function useMeeting() {
     }
 
     try {
+      // Intentar capturar audio de la pantalla/tab (Chrome/Edge suelen soportarlo)
+      // Nota: si el navegador deniega audio, igual se mantiene la captura de video.
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: false,
+        audio: true,
         video: {
           frameRate: { ideal: 12, max: 18 }
         }
@@ -1385,13 +1387,29 @@ export function useMeeting() {
         stopScreenShare();
       };
 
+      const screenAudioTrack = screenStream.getAudioTracks()[0] ?? null;
+
+      // Video principal del screen share
       await replaceOutgoingTrack("video", screenTrack);
+
+      // Audio del screen share: reemplaza track de audio del sender si existe.
+      // Si no hay audio de display, usamos el audio del mic local (comportamiento actual).
+      if (screenAudioTrack) {
+        await replaceOutgoingTrack("audio", screenAudioTrack);
+      } else {
+        // Si el navegador no permite audio de display, mantenemos el audio del mic.
+        await replaceOutgoingTrack("audio", localStreamRef.current?.getAudioTracks()[0] ?? null);
+      }
+
       setPreviewStream(
         new MediaStream([
           screenTrack,
-          ...(localStreamRef.current?.getAudioTracks() ?? [])
+          ...(screenAudioTrack
+            ? [screenAudioTrack]
+            : localStreamRef.current?.getAudioTracks() ?? [])
         ])
       );
+
       setMediaState((current) => ({
         ...current,
         screenSharing: true
