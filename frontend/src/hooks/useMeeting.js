@@ -861,6 +861,41 @@ export function useMeeting() {
     }
 
     try {
+      // UX-first: cargar estado persistido inmediatamente (sin bloquear por RAM parcial).
+      if (sessionRef.current.roomId && socket.connected) {
+        const partial = await emitWithAck(socket, "reconnect-reentry", {
+          roomId: sessionRef.current.roomId,
+          username: sessionRef.current.username
+        });
+
+        if (partial?.ok && partial.status && partial.status !== "missing") {
+          setRoomId(partial.roomId);
+          setWhiteboardStrokes(partial.whiteboard ?? []);
+          setMessages(partial.messages ?? []);
+
+          // Provisional: siempre role guest en reingreso parcial.
+          // Luego se corrige con el flujo normal (request-join -> join-approved) cuando RAM permita.
+          const provisionalSelf = {
+            id: socket.id,
+            username: sessionRef.current.username,
+            joinedAt: new Date().toISOString(),
+            role: "guest"
+          };
+          setCurrentSelf(provisionalSelf);
+
+          setStatus(partial.status === "ended" ? "ended" : "joined");
+
+          if (partial.status === "ended") {
+            setEndState({
+              kind: "ended",
+              title: "Esta reunion ya termino"
+            });
+            setError("La reunion ha finalizado.");
+            return;
+          }
+        }
+      }
+
       if (!sessionRef.current.joined) {
         await requestSessionAccess(socket, sessionRef.current, "request-join");
         return;
@@ -883,6 +918,7 @@ export function useMeeting() {
       setError(rejoinError.message || "No se pudo recuperar la reunion.");
     }
   }
+
 
   const [recordingActive, setRecordingActive] = useState(false);
   const [recordingBy, setRecordingBy] = useState(null);

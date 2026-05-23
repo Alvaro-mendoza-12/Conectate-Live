@@ -184,6 +184,10 @@ export function getWhiteboardSnapshot(roomId) {
   return [...(rooms.get(roomId)?.whiteboard ?? [])];
 }
 
+// NOTE: Persistencia SQLite se integra en una siguiente iteracion (bloque 1).
+// Esta funcion seguirá sirviendo el snapshot actual en RAM.
+
+
 export function addWhiteboardStroke(roomId, stroke) {
   const room = rooms.get(roomId);
 

@@ -23,11 +23,18 @@ import {
   removeUser,
   shareRoom
 } from "./roomStore.js";
+import { migrate } from "./storage/migrations.js";
+
 import {
   getIdentityCapabilities,
   resolveSocketIdentity
 } from "./identityProvider.js";
+import { persistChatMessage, persistWhiteboardSnapshot, ensureRoomActive, markRoomEnded } from "./storage/roomPersistence.js";
+
+import { buildReconnectPayload } from "./storage/reingreso.js";
+
 import { canPerformRoomAction, roomActions } from "./meetingPermissions.js";
+
 import { getRuntimeMetrics, trackMetric } from "./runtimeMetrics.js";
 import {
   isIceCandidate,
@@ -450,8 +457,9 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("create-room", (payload, callback) => {
+  socket.on("create-room", async (payload, callback) => {
     const username = normalizeUsername(payload?.username);
+
     const roomId = normalizeRoomId(payload?.roomId);
 
     if (!username || !roomId) {
@@ -486,6 +494,14 @@ io.on("connection", (socket) => {
       joinedAt: new Date().toISOString()
     };
     const owner = createRoom(roomId, user);
+    // Persist minimal room metadata for refresh/reingreso robustness.
+    // We only persist metadata; realtime peers remain RAM-only (WebRTC mesh).
+    await ensureRoomActive({
+      roomId,
+      ownerUserId: socket.data.identity.profileId,
+      ownerSocketId: socket.id
+    });
+
 
     if (!owner) {
       const roomState = getRoomState(roomId);
@@ -674,7 +690,8 @@ io.on("connection", (socket) => {
     trackMetric("joins.approved");
   });
 
-  socket.on("chat-message", (payload, callback) => {
+  socket.on("chat-message", async (payload, callback) => {
+
     const user = getUser(socket.id);
     const text = normalizeMessage(payload?.text);
 
@@ -705,8 +722,10 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const messageId = crypto.randomUUID();
+
     io.to(user.roomId).emit("chat-message", {
-      id: crypto.randomUUID(),
+      id: messageId,
       kind: "chat",
       text,
       createdAt: new Date().toISOString(),
@@ -715,6 +734,18 @@ io.on("connection", (socket) => {
         username: user.username
       }
     });
+
+    await persistChatMessage({
+      messageId,
+      roomId: user.roomId,
+      userId:
+        socket.data.identity?.profileId ??
+        socket.data.identity?.sessionId ??
+        socket.id,
+      username: user.username,
+      text
+    });
+
 
     log("info", "chat_sent", {
       roomId: user.roomId,
@@ -803,7 +834,8 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("close-room", (_payload, callback) => {
+  socket.on("close-room", async (_payload, callback) => {
+
     const owner = getUser(socket.id);
 
     if (!canPerformRoomAction(owner, roomActions.close)) {
@@ -815,6 +847,8 @@ io.on("connection", (socket) => {
     }
 
     const closedRoom = closeRoom(owner.roomId);
+    await markRoomEnded({ roomId: owner.roomId, endedAtReason: "owner-closed" });
+
 
     acknowledge(callback, { ok: true });
 
@@ -855,7 +889,8 @@ io.on("connection", (socket) => {
     trackMetric("rooms.closed");
   });
 
-  socket.on("whiteboard-stroke", (payload, callback) => {
+  socket.on("whiteboard-stroke", async (payload, callback) => {
+
     const user = getUser(socket.id);
     const stroke = normalizeWhiteboardStroke(payload?.stroke);
 
@@ -897,6 +932,12 @@ io.on("connection", (socket) => {
     socket.to(user.roomId).emit("whiteboard-stroke", sharedStroke);
     acknowledge(callback, { ok: true });
     trackMetric("whiteboard.strokes");
+
+    await persistWhiteboardSnapshot({
+      roomId: user.roomId,
+      strokes: getWhiteboardSnapshot(user.roomId)
+    });
+
   });
 
   socket.on("whiteboard-clear", (_payload, callback) => {
@@ -1040,6 +1081,39 @@ io.on("connection", (socket) => {
     acknowledge(callback, { ok: true });
   });
 
+  // UX-first: reingreso parcial (refresh transparente) por estado persistido.
+  // No depende de RAM para reconstruir participants; solo devuelve chat/whiteboard/status.
+  socket.on("reconnect-reentry", async (payload, callback) => {
+    const roomId = normalizeRoomId(payload?.roomId);
+
+    if (!roomId) {
+      acknowledge(callback, { ok: false, error: "RoomId invalido." });
+      return;
+    }
+
+
+    const identity = socket.data.identity;
+
+    try {
+      const state = await buildReconnectPayload({ roomId, identity });
+
+      // Si la sala terminó, respondemos igualmente para que el frontend cierre UX.
+      if (state.status === "missing") {
+        acknowledge(callback, {
+          ok: false,
+          code: "ROOM_MISSING",
+          error: "No encontramos esa reunion."
+        });
+        return;
+      }
+
+      acknowledge(callback, state);
+    } catch (e) {
+      acknowledge(callback, { ok: false, error: "No se pudo recuperar el estado persistido." });
+    }
+  });
+
+
   socket.on("disconnect", (reason) => {
     removePendingRequest(socket, `disconnect:${reason}`);
     leaveCurrentRoom(socket, `disconnect:${reason}`);
@@ -1085,10 +1159,23 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-httpServer.listen(port, "0.0.0.0", () => {
-  log("info", "listening", {
-    url: `http://0.0.0.0:${port}`,
-    origins: configuredOrigins,
-    logLevel
+async function start() {
+  try {
+    await migrate();
+    log("info", "sqlite_migrated");
+  } catch (error) {
+    log("error", "sqlite_migrate_failed", { message: error.message });
+    process.exit(1);
+  }
+
+  httpServer.listen(port, "0.0.0.0", () => {
+    log("info", "listening", {
+      url: `http://0.0.0.0:${port}`,
+      origins: configuredOrigins,
+      logLevel
+    });
   });
-});
+}
+
+start();
+
