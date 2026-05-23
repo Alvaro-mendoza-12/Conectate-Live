@@ -1294,7 +1294,12 @@ export function useMeeting() {
     return response.ok;
   }
 
-  async function setMeetingFocus(targetId, mode = "participant", reason = "manual") {
+  async function setMeetingFocus(
+    targetId,
+    mode = "participant",
+    reason = "manual",
+    options = {}
+  ) {
     if (!socketRef.current?.connected || !targetId) {
       return false;
     }
@@ -1305,14 +1310,14 @@ export function useMeeting() {
       targetId
     });
 
-    if (!response.ok) {
+    if (!response.ok && !options.silent) {
       setError(response.error);
     }
 
     return response.ok;
   }
 
-  async function disableMeetingFocus(reason = "manual") {
+  async function disableMeetingFocus(reason = "manual", options = {}) {
     if (!socketRef.current?.connected) {
       return false;
     }
@@ -1321,7 +1326,7 @@ export function useMeeting() {
       reason
     });
 
-    if (!response.ok) {
+    if (!response.ok && !options.silent) {
       setError(response.error);
     }
 
@@ -1477,7 +1482,13 @@ export function useMeeting() {
     }));
 
     if (shouldDisableFocus) {
-      await disableMeetingFocus("screen-share-ended");
+      const disabled = await disableMeetingFocus("screen-share-ended", {
+        silent: true
+      });
+
+      if (!disabled) {
+        applyFocusState(null);
+      }
     }
   }
 
@@ -1541,7 +1552,27 @@ export function useMeeting() {
       }));
 
       if (selfRef.current?.id) {
-        await setMeetingFocus(selfRef.current.id, "screen", "screen-share");
+        const focused = await setMeetingFocus(
+          selfRef.current.id,
+          "screen",
+          "screen-share",
+          { silent: true }
+        );
+
+        if (!focused) {
+          applyFocusState({
+            by: {
+              id: selfRef.current.id,
+              username: selfRef.current.username
+            },
+            mode: "screen",
+            reason: "screen-share",
+            roomId: sessionRef.current?.roomId,
+            startedAt: new Date().toISOString(),
+            targetId: selfRef.current.id,
+            targetName: selfRef.current.username
+          });
+        }
       }
     } catch (screenError) {
       realtimeLog("warn", "screen-share-failed", {
