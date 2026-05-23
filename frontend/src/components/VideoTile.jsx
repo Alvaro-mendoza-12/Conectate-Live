@@ -1,13 +1,15 @@
-import { Monitor, VideoOff, Volume2, VolumeX } from "lucide-react";
+import { Expand, Minimize2, Monitor, VideoOff, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 export function VideoTile({
   className = "",
   compact = false,
   connectionLabel = "",
+  fullscreenActive = false,
   local = false,
   muted = false,
   name,
+  onFullscreen,
   onToggleMute,
   screenSharing = false,
   speaking = false,
@@ -35,8 +37,7 @@ export function VideoTile({
     ? "h-full min-h-0"
     : compact
       ? "aspect-video min-h-0"
-      : "aspect-video min-h-[160px] sm:min-h-[180px]";
-  const videoFitClass = screenSharing ? "object-contain" : "object-cover";
+      : "h-full min-h-0";
 
   return (
     <article
@@ -48,7 +49,7 @@ export function VideoTile({
     >
       <video
         autoPlay
-        className={`h-full w-full ${videoFitClass} ${local && !screenSharing ? "-scale-x-100" : ""}`}
+        className={`h-full w-full object-contain ${local && !screenSharing ? "-scale-x-100" : ""}`}
         muted={local || muted}
         playsInline
         ref={videoRef}
@@ -65,7 +66,7 @@ export function VideoTile({
         </div>
       ) : null}
 
-      <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+      <div className="absolute left-3 top-3 flex flex-wrap gap-2 pr-12">
         {speaking ? (
           <span className="speaking-badge rounded-md bg-teal-300 px-2 py-1 text-xs font-medium text-slate-950">
             Hablando
@@ -77,6 +78,18 @@ export function VideoTile({
           </span>
         ) : null}
       </div>
+
+      {onFullscreen ? (
+        <button
+          aria-label={fullscreenActive ? "Salir de pantalla completa" : "Pantalla completa"}
+          className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-md bg-black/58 text-white backdrop-blur hover:bg-black/78"
+          onClick={onFullscreen}
+          title={fullscreenActive ? "Salir de pantalla completa" : "Pantalla completa"}
+          type="button"
+        >
+          {fullscreenActive ? <Minimize2 size={17} /> : <Expand size={17} />}
+        </button>
+      ) : null}
 
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-3 pt-10">
         <span className={`truncate rounded-md bg-black/45 px-2 py-1 text-white ${compact ? "text-xs" : "text-sm"}`}>

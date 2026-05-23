@@ -2,11 +2,9 @@ import {
   Check,
   Copy,
   Crown,
-  Expand,
   Grid2X2,
   Link2,
   MessageSquare,
-  Minimize2,
   PenLine,
   Radio,
   RefreshCw,
@@ -102,11 +100,42 @@ function peerConnectionLabel(peer) {
     : "";
 }
 
+function gridShapeFor(count, width) {
+  if (count <= 1) {
+    return { columns: 1, rows: 1 };
+  }
+
+  const columns =
+    width < 640
+      ? count <= 2
+        ? 1
+        : 2
+      : width < 1080
+        ? count <= 4
+          ? 2
+          : 3
+        : count <= 2
+          ? 2
+          : count <= 4
+            ? 2
+            : count <= 9
+              ? 3
+              : 4;
+
+  return {
+    columns,
+    rows: Math.ceil(count / columns)
+  };
+}
+
 export function MeetingRoom({ meeting }) {
   const [mobilePanel, setMobilePanel] = useState("video");
   const [sidePanel, setSidePanel] = useState("chat");
   const [copied, setCopied] = useState(false);
   const [stageFullscreen, setStageFullscreen] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1280 : window.innerWidth
+  );
   const focusStageRef = useRef(null);
   const owner = meeting.self.role === "owner";
   const shareLink = meetingLink(meeting.roomId);
@@ -210,11 +239,22 @@ export function MeetingRoom({ meeting }) {
   const focusedParticipant =
     focusState && participants.find((participant) => participant.id === focusState.targetId);
   const focusActive = Boolean(focusState && focusedParticipant);
+  const gridShape = useMemo(
+    () => gridShapeFor(participants.length, viewportWidth),
+    [participants.length, viewportWidth]
+  );
+  const gridStyle = {
+    gridTemplateColumns: `repeat(${gridShape.columns}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${gridShape.rows}, minmax(0, 1fr))`
+  };
   const secondaryParticipants = focusActive
     ? participants.filter((participant) => participant.id !== focusedParticipant.id)
     : [];
   const canControlFocus =
     focusActive && (owner || focusState.targetId === meeting.self.id);
+  const userPanelClass = focusActive
+    ? "hidden xl:hidden"
+    : `${mobilePanel === "users" ? "flex" : "hidden"} xl:flex`;
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -224,6 +264,17 @@ export function MeetingRoom({ meeting }) {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleResize() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
@@ -246,10 +297,12 @@ export function MeetingRoom({ meeting }) {
         className={options.className}
         compact={options.compact}
         connectionLabel={participant.connectionLabel}
+        fullscreenActive={options.fullscreenActive}
         key={participant.id}
         local={participant.local}
         muted={participant.muted}
         name={participant.name}
+        onFullscreen={options.onFullscreen}
         onToggleMute={participant.onToggleMute}
         screenSharing={participant.screenSharing}
         speaking={participant.speaking}
@@ -359,7 +412,7 @@ export function MeetingRoom({ meeting }) {
         </div>
       ) : null}
 
-      <nav className="grid grid-cols-4 gap-1 border-b border-white/8 p-2 lg:hidden">
+      <nav className="grid grid-cols-4 gap-1 border-b border-white/8 p-2 xl:hidden">
         <ViewButton
           active={mobilePanel === "video"}
           icon={Video}
@@ -390,16 +443,22 @@ export function MeetingRoom({ meeting }) {
         </ViewButton>
       </nav>
 
-      <section className="grid min-h-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-3 lg:grid-cols-[250px_minmax(0,1fr)_340px] lg:p-4">
+      <section
+        className={`grid min-h-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-3 xl:p-4 ${
+          focusActive
+            ? "xl:grid-cols-1"
+            : "xl:grid-cols-[250px_minmax(0,1fr)_340px]"
+        }`}
+      >
         <UserPanel
-          className={`${mobilePanel === "users" ? "flex" : "hidden"} lg:flex`}
+          className={userPanelClass}
           onModerate={meeting.moderateUser}
           self={meeting.self}
           users={meeting.users}
         />
 
         <section
-          className={`${mobilePanel === "video" ? "flex" : "hidden"} min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0e1220]/74 p-2 sm:p-3 lg:flex`}
+          className={`${mobilePanel === "video" ? "flex" : "hidden"} relative min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0e1220]/74 p-2 sm:p-3 xl:flex`}
         >
           {focusActive ? (
             <section
@@ -416,9 +475,11 @@ export function MeetingRoom({ meeting }) {
                 <section className="relative min-h-0 overflow-hidden rounded-lg">
                   {renderVideoTile(focusedParticipant, {
                     className: "h-full min-h-0",
+                    fullscreenActive: stageFullscreen,
+                    onFullscreen: toggleFocusFullscreen,
                     spotlight: true
                   })}
-                  <div className="absolute right-3 top-3 z-10 flex gap-2">
+                  <div className="absolute right-14 top-3 z-10 flex gap-2">
                     {canControlFocus ? (
                       <button
                         aria-label="Volver a cuadricula"
@@ -430,15 +491,6 @@ export function MeetingRoom({ meeting }) {
                         <Grid2X2 size={17} />
                       </button>
                     ) : null}
-                    <button
-                      aria-label={stageFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                      className="grid h-9 w-9 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
-                      onClick={toggleFocusFullscreen}
-                      title={stageFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                      type="button"
-                    >
-                      {stageFullscreen ? <Minimize2 size={17} /> : <Expand size={17} />}
-                    </button>
                   </div>
                 </section>
 
@@ -456,23 +508,26 @@ export function MeetingRoom({ meeting }) {
             </section>
           ) : (
             <>
-              <div className="grid min-h-0 content-start gap-2 overflow-y-auto pr-1 sm:gap-3 md:grid-cols-2 lg:grid-cols-1 min-[1500px]:grid-cols-2 min-[2100px]:grid-cols-3">
-                {participants.map((participant) => renderVideoTile(participant))}
+              <div
+                className="grid min-h-0 flex-1 gap-2 overflow-hidden sm:gap-3"
+                style={gridStyle}
+              >
+                {participants.map((participant) =>
+                  renderVideoTile(participant, {
+                    className: "h-full min-h-0"
+                  })
+                )}
               </div>
 
               {meeting.users.length <= 1 ? (
-                <section className="mt-3 grid min-h-44 shrink-0 place-items-center rounded-lg border border-dashed border-white/12 bg-black/15 px-5 text-center">
+                <section className="pointer-events-none absolute inset-x-4 bottom-4 z-10 mx-auto grid max-w-md place-items-center rounded-lg border border-white/10 bg-black/42 px-4 py-3 text-center shadow-2xl shadow-black/30 backdrop-blur-md">
                   <div>
-                    <p className="text-base font-medium text-white">
+                    <p className="text-sm font-medium text-white">
                       Esperando participantes
                     </p>
-                    <p className="mt-2 text-sm text-slate-300">
+                    <p className="mt-1 text-xs text-slate-300">
                       Comparte el enlace para recibir solicitudes de entrada.
                     </p>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <span className="brand-skeleton h-16 rounded-md" />
-                      <span className="brand-skeleton h-16 rounded-md" />
-                    </div>
                   </div>
                 </section>
               ) : null}
@@ -483,9 +538,9 @@ export function MeetingRoom({ meeting }) {
         <section
           className={`${
             ["board", "chat"].includes(mobilePanel) ? "flex" : "hidden"
-          } min-h-0 flex-col gap-2 lg:flex`}
+          } ${focusActive ? "xl:hidden" : "xl:flex"} min-h-0 flex-col gap-2`}
         >
-          <nav className="hidden grid-cols-2 gap-1 rounded-lg border border-white/8 bg-black/18 p-1 lg:grid">
+          <nav className="hidden grid-cols-2 gap-1 rounded-lg border border-white/8 bg-black/18 p-1 xl:grid">
             <ViewButton
               active={sidePanel === "chat"}
               icon={MessageSquare}
@@ -505,7 +560,7 @@ export function MeetingRoom({ meeting }) {
           <ChatPanel
             className={`${
               mobilePanel === "chat" ? "flex" : "hidden"
-            } ${sidePanel === "chat" ? "lg:flex" : "lg:hidden"}`}
+            } ${sidePanel === "chat" ? "xl:flex" : "xl:hidden"}`}
             messages={meeting.messages}
             onSend={meeting.sendMessage}
             self={meeting.self}
@@ -514,7 +569,7 @@ export function MeetingRoom({ meeting }) {
             canClear={owner}
             className={`${
               mobilePanel === "board" ? "flex" : "hidden"
-            } ${sidePanel === "board" ? "lg:flex" : "lg:hidden"}`}
+            } ${sidePanel === "board" ? "xl:flex" : "xl:hidden"}`}
             onClear={meeting.clearMeetingWhiteboard}
             onStroke={meeting.sendWhiteboardStroke}
             strokes={meeting.whiteboardStrokes}

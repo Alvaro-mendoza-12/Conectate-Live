@@ -98,15 +98,15 @@ export function ControlBar({
         </div>
       ) : null}
 
-      <span className="mx-1 h-8 w-px bg-white/10 lg:hidden" />
+      <span className="mx-1 h-8 w-px bg-white/10 xl:hidden" />
 
-      <span className="lg:hidden">
+      <span className="xl:hidden">
         <ControlButton label="Ver chat" onClick={() => onMobilePanel("chat")}>
           <MessageSquare size={19} />
         </ControlButton>
       </span>
 
-      <span className="lg:hidden">
+      <span className="xl:hidden">
         <ControlButton label="Ver usuarios" onClick={() => onMobilePanel("users")}>
           <UsersRound size={19} />
         </ControlButton>
