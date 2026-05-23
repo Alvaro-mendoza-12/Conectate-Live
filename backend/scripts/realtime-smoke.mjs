@@ -86,6 +86,42 @@ async function run() {
     );
     await guestAdmissionNotice;
 
+    const focusChangedNotice = once(guest, "focus-changed");
+
+    requireOk(
+      await emitWithAck(owner, "focus-set", {
+        mode: "screen",
+        reason: "screen-share",
+        targetId: owner.id
+      }),
+      "focus-set"
+    );
+
+    const focusChanged = await focusChangedNotice;
+
+    if (
+      focusChanged.mode !== "screen" ||
+      focusChanged.reason !== "screen-share" ||
+      focusChanged.targetId !== owner.id
+    ) {
+      throw new Error("focus-changed no propago el foco de pantalla.");
+    }
+
+    const focusDisabledNotice = once(guest, "focus-disabled");
+
+    requireOk(
+      await emitWithAck(owner, "focus-disable", {
+        reason: "manual"
+      }),
+      "focus-disable"
+    );
+
+    const focusDisabled = await focusDisabledNotice;
+
+    if (focusDisabled.focus?.targetId !== owner.id) {
+      throw new Error("focus-disabled no propago el foco desactivado.");
+    }
+
     const strokeNotice = once(guest, "whiteboard-stroke");
 
     requireOk(

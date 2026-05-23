@@ -8,9 +8,11 @@ import {
   addUser,
   addJoinRequest,
   clearWhiteboard,
+  clearRoomFocus,
   closeRoom,
   createRoom,
   getJoinRequest,
+  getRoomFocus,
   getRoomJoinRequests,
   getRoomOwner,
   getRoomState,
@@ -21,6 +23,7 @@ import {
   isRoomOwner,
   removeJoinRequest,
   removeUser,
+  setRoomFocus,
   shareRoom
 } from "./roomStore.js";
 import { migrate } from "./storage/migrations.js";
@@ -39,6 +42,8 @@ import { getRuntimeMetrics, trackMetric } from "./runtimeMetrics.js";
 import {
   isIceCandidate,
   isSessionDescription,
+  normalizeFocusMode,
+  normalizeFocusReason,
   normalizeMessage,
   normalizeRoomId,
   normalizeWhiteboardStroke,
@@ -256,6 +261,7 @@ function broadcastUsers(roomId) {
 function publicRoomPayload(user, roomId) {
   return {
 
+    focus: getRoomFocus(roomId),
     roomId,
     self: {
       id: user.id,
@@ -276,6 +282,31 @@ function broadcastJoinRequests(roomId) {
   if (owner) {
     io.to(owner.id).emit("join-requests", getRoomJoinRequests(roomId));
   }
+}
+
+function broadcastFocusDisabled(roomId, disabledBy, reason = "manual") {
+  const previousFocus = clearRoomFocus(roomId);
+
+  if (!previousFocus) {
+    return null;
+  }
+
+  const payload = {
+    disabledAt: new Date().toISOString(),
+    disabledBy,
+    focus: previousFocus,
+    reason,
+    roomId
+  };
+
+  io.to(roomId).emit("focus-disabled", payload);
+  trackMetric("focus.disabled");
+  log("info", "focus_disabled", {
+    roomId,
+    reason,
+    targetId: previousFocus.targetId
+  });
+  return payload;
 }
 
 function removePendingRequest(socket, reason) {
@@ -336,6 +367,7 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
   const currentUser = getUser(socket.id);
   const pendingRequests =
     currentUser?.role === "owner" ? getRoomJoinRequests(currentUser.roomId) : [];
+  const currentFocus = currentUser ? getRoomFocus(currentUser.roomId) : null;
   const user = removeUser(socket.id);
 
   if (!user) {
@@ -351,6 +383,14 @@ function leaveCurrentRoom(socket, reason = "leave-room") {
     "system-message",
     systemMessage(`${user.username} salio de la reunion.`)
   );
+
+  if (currentFocus?.targetId === user.id) {
+    broadcastFocusDisabled(user.roomId, {
+      id: user.id,
+      username: user.username
+    }, "peer-left");
+  }
+
   broadcastUsers(user.roomId);
 
   const nextOwner = getRoomOwner(user.roomId);
@@ -834,6 +874,94 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("focus-set", (payload, callback) => {
+    const user = getUser(socket.id);
+    const targetId = String(payload?.targetId || user?.id || "");
+    const target = getUser(targetId);
+    const mode = normalizeFocusMode(payload?.mode);
+    const reason = normalizeFocusReason(payload?.reason);
+
+    if (!user || !target || target.roomId !== user.roomId) {
+      acknowledge(callback, {
+        ok: false,
+        error: "No se pudo activar el modo foco."
+      });
+      return;
+    }
+
+    if (target.id !== user.id && user.role !== "owner") {
+      acknowledge(callback, {
+        ok: false,
+        error: "Solo el owner puede enfocar a otro participante."
+      });
+      return;
+    }
+
+    const focus = setRoomFocus(user.roomId, {
+      by: {
+        id: user.id,
+        username: user.username
+      },
+      mode,
+      reason,
+      targetId: target.id,
+      targetName: target.username
+    });
+
+    if (!focus) {
+      acknowledge(callback, {
+        ok: false,
+        error: "La sala ya no esta disponible."
+      });
+      return;
+    }
+
+    io.to(user.roomId).emit("focus-changed", focus);
+    acknowledge(callback, {
+      ok: true,
+      focus
+    });
+    log("info", "focus_changed", {
+      mode,
+      reason,
+      roomId: user.roomId,
+      socketId: user.id,
+      targetId: target.id
+    });
+    trackMetric("focus.changed");
+  });
+
+  socket.on("focus-disable", (payload, callback) => {
+    const user = getUser(socket.id);
+    const currentFocus = user ? getRoomFocus(user.roomId) : null;
+    const reason = normalizeFocusReason(payload?.reason);
+
+    if (!user || !currentFocus) {
+      acknowledge(callback, {
+        ok: false,
+        error: "No hay un modo foco activo."
+      });
+      return;
+    }
+
+    if (currentFocus.targetId !== user.id && user.role !== "owner") {
+      acknowledge(callback, {
+        ok: false,
+        error: "Solo el owner o el usuario enfocado puede desactivar foco."
+      });
+      return;
+    }
+
+    const disabled = broadcastFocusDisabled(user.roomId, {
+      id: user.id,
+      username: user.username
+    }, reason);
+
+    acknowledge(callback, {
+      ok: Boolean(disabled)
+    });
+  });
+
   socket.on("close-room", async (_payload, callback) => {
 
     const owner = getUser(socket.id);
@@ -1107,7 +1235,10 @@ io.on("connection", (socket) => {
         return;
       }
 
-      acknowledge(callback, state);
+      acknowledge(callback, {
+        ...state,
+        focus: getRoomState(roomId) === "active" ? getRoomFocus(roomId) : null
+      });
     } catch (e) {
       acknowledge(callback, { ok: false, error: "No se pudo recuperar el estado persistido." });
     }
@@ -1178,4 +1309,3 @@ async function start() {
 }
 
 start();
-

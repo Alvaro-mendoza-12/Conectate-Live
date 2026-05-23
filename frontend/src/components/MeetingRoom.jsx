@@ -1,3 +1,31 @@
+import {
+  Check,
+  Copy,
+  Crown,
+  Expand,
+  Grid2X2,
+  Link2,
+  MessageSquare,
+  Minimize2,
+  PenLine,
+  Radio,
+  RefreshCw,
+  Signal,
+  SignalLow,
+  UserPlus,
+  UsersRound,
+  Video,
+  X
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocalRecording } from "../hooks/useLocalRecording.js";
+import { meetingLink } from "../lib/room.js";
+import { useMeetingData } from "../providers/MeetingDataProvider.jsx";
+import { BrandLogo } from "./BrandLogo.jsx";
+import { ChatPanel } from "./ChatPanel.jsx";
+import { ControlBar } from "./ControlBar.jsx";
+import { UserPanel } from "./UserPanel.jsx";
+import { VideoTile } from "./VideoTile.jsx";
 import { WhiteboardPanel } from "./WhiteboardPanel.jsx";
 
 function ViewButton({ active, children, icon: Icon, onClick }) {
@@ -63,10 +91,23 @@ function AdmissionDock({ meeting }) {
   );
 }
 
+function peerConnectionLabel(peer) {
+  if (peer.recovering) {
+    return "Reconectando";
+  }
+
+  return ["failed", "disconnected"].includes(peer.iceState) ||
+    ["failed", "disconnected"].includes(peer.connectionState)
+    ? "Inestable"
+    : "";
+}
+
 export function MeetingRoom({ meeting }) {
   const [mobilePanel, setMobilePanel] = useState("video");
   const [sidePanel, setSidePanel] = useState("chat");
   const [copied, setCopied] = useState(false);
+  const [stageFullscreen, setStageFullscreen] = useState(false);
+  const focusStageRef = useRef(null);
   const owner = meeting.self.role === "owner";
   const shareLink = meetingLink(meeting.roomId);
   const recording = useLocalRecording({
@@ -115,6 +156,108 @@ export function MeetingRoom({ meeting }) {
     }
   }[meeting.connectionQuality];
   const ConnectionIcon = connectionTone.icon;
+  const focusState = meeting.focusState;
+  const usersById = useMemo(
+    () => new Map(meeting.users.map((user) => [user.id, user])),
+    [meeting.users]
+  );
+  const participants = useMemo(() => {
+    const localParticipant = {
+      id: meeting.self.id,
+      local: true,
+      name: `${meeting.self.username} (Tu)`,
+      screenSharing: meeting.mediaState.screenSharing,
+      speaking: meeting.localSpeaking,
+      stream: meeting.previewStream ?? meeting.localStream
+    };
+    const remoteParticipants = meeting.remoteMedia.map((peer) => ({
+      connectionLabel: peerConnectionLabel(peer),
+      id: peer.id,
+      muted: peer.muted,
+      name: peer.user?.username ?? usersById.get(peer.id)?.username ?? "Participante",
+      onToggleMute: () => meeting.toggleRemoteMute(peer.id),
+      screenSharing: focusState?.mode === "screen" && focusState.targetId === peer.id,
+      speaking: peer.speaking,
+      stream: peer.stream
+    }));
+    const visibleIds = new Set([
+      localParticipant.id,
+      ...remoteParticipants.map((participant) => participant.id)
+    ]);
+    const waitingParticipants = meeting.users
+      .filter((user) => !visibleIds.has(user.id))
+      .map((user) => ({
+        id: user.id,
+        name: user.username,
+        screenSharing: focusState?.mode === "screen" && focusState.targetId === user.id,
+        stream: null
+      }));
+
+    return [localParticipant, ...remoteParticipants, ...waitingParticipants];
+  }, [
+    focusState,
+    meeting.localSpeaking,
+    meeting.localStream,
+    meeting.mediaState.screenSharing,
+    meeting.previewStream,
+    meeting.remoteMedia,
+    meeting.self.id,
+    meeting.self.username,
+    meeting.toggleRemoteMute,
+    meeting.users,
+    usersById
+  ]);
+  const focusedParticipant =
+    focusState && participants.find((participant) => participant.id === focusState.targetId);
+  const focusActive = Boolean(focusState && focusedParticipant);
+  const secondaryParticipants = focusActive
+    ? participants.filter((participant) => participant.id !== focusedParticipant.id)
+    : [];
+  const canControlFocus =
+    focusActive && (owner || focusState.targetId === meeting.self.id);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setStageFullscreen(document.fullscreenElement === focusStageRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  async function toggleFocusFullscreen() {
+    if (!focusStageRef.current) {
+      return;
+    }
+
+    if (document.fullscreenElement === focusStageRef.current) {
+      await document.exitFullscreen?.();
+      return;
+    }
+
+    await focusStageRef.current.requestFullscreen?.();
+  }
+
+  function renderVideoTile(participant, options = {}) {
+    return (
+      <VideoTile
+        className={options.className}
+        compact={options.compact}
+        connectionLabel={participant.connectionLabel}
+        key={participant.id}
+        local={participant.local}
+        muted={participant.muted}
+        name={participant.name}
+        onToggleMute={participant.onToggleMute}
+        screenSharing={participant.screenSharing}
+        speaking={participant.speaking}
+        spotlight={options.spotlight}
+        stream={participant.stream}
+      />
+    );
+  }
 
   return (
     <main className="room-shell relative flex h-dvh min-h-screen flex-col overflow-hidden bg-[#080b13]/72">
@@ -256,53 +399,85 @@ export function MeetingRoom({ meeting }) {
         />
 
         <section
-          className={`${mobilePanel === "video" ? "flex" : "hidden"} min-h-0 flex-col overflow-y-auto rounded-lg border border-white/10 bg-[#0e1220]/74 p-2 sm:p-3 lg:flex`}
+          className={`${mobilePanel === "video" ? "flex" : "hidden"} min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0e1220]/74 p-2 sm:p-3 lg:flex`}
         >
-          <div className="grid content-start gap-2 sm:gap-3 md:grid-cols-2 lg:grid-cols-1 min-[1500px]:grid-cols-2 min-[2100px]:grid-cols-3">
-            <VideoTile
-              local
-              name={`${meeting.self.username} (Tu)`}
-              screenSharing={meeting.mediaState.screenSharing}
-              speaking={meeting.localSpeaking}
-              stream={meeting.previewStream ?? meeting.localStream}
-            />
+          {focusActive ? (
+            <section
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md bg-[#080c15] p-2 fullscreen:bg-[#080c15] sm:p-3"
+              ref={focusStageRef}
+            >
+              <div
+                className={`grid min-h-0 flex-1 gap-2 overflow-hidden ${
+                  secondaryParticipants.length > 0
+                    ? "lg:grid-cols-[minmax(0,1fr)_minmax(150px,220px)]"
+                    : "lg:grid-cols-1"
+                }`}
+              >
+                <section className="relative min-h-0 overflow-hidden rounded-lg">
+                  {renderVideoTile(focusedParticipant, {
+                    className: "h-full min-h-0",
+                    spotlight: true
+                  })}
+                  <div className="absolute right-3 top-3 z-10 flex gap-2">
+                    {canControlFocus ? (
+                      <button
+                        aria-label="Volver a cuadricula"
+                        className="grid h-9 w-9 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+                        onClick={() => meeting.disableMeetingFocus("manual")}
+                        title="Volver a cuadricula"
+                        type="button"
+                      >
+                        <Grid2X2 size={17} />
+                      </button>
+                    ) : null}
+                    <button
+                      aria-label={stageFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                      className="grid h-9 w-9 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+                      onClick={toggleFocusFullscreen}
+                      title={stageFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                      type="button"
+                    >
+                      {stageFullscreen ? <Minimize2 size={17} /> : <Expand size={17} />}
+                    </button>
+                  </div>
+                </section>
 
-            {meeting.remoteMedia.map((peer) => (
-              <VideoTile
-                connectionLabel={
-                  peer.recovering
-                    ? "Reconectando"
-                    : ["failed", "disconnected"].includes(peer.iceState) ||
-                        ["failed", "disconnected"].includes(peer.connectionState)
-                      ? "Inestable"
-                      : ""
-                }
-                key={peer.id}
-                muted={peer.muted}
-                name={peer.user?.username ?? "Participante"}
-                onToggleMute={() => meeting.toggleRemoteMute(peer.id)}
-                speaking={peer.speaking}
-                stream={peer.stream}
-              />
-            ))}
-          </div>
-
-          {meeting.users.length <= 1 ? (
-            <section className="mt-3 grid min-h-44 place-items-center rounded-lg border border-dashed border-white/12 bg-black/15 px-5 text-center">
-              <div>
-                <p className="text-base font-medium text-white">
-                  Esperando participantes
-                </p>
-                <p className="mt-2 text-sm text-slate-300">
-                  Comparte el enlace para recibir solicitudes de entrada.
-                </p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <span className="brand-skeleton h-16 rounded-md" />
-                  <span className="brand-skeleton h-16 rounded-md" />
-                </div>
+                {secondaryParticipants.length > 0 ? (
+                  <aside className="flex min-h-[6rem] shrink-0 gap-2 overflow-x-auto overflow-y-hidden pb-1 lg:min-h-0 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1">
+                    {secondaryParticipants.map((participant) =>
+                      renderVideoTile(participant, {
+                        className: "w-36 shrink-0 sm:w-44 lg:w-full",
+                        compact: true
+                      })
+                    )}
+                  </aside>
+                ) : null}
               </div>
             </section>
-          ) : null}
+          ) : (
+            <>
+              <div className="grid min-h-0 content-start gap-2 overflow-y-auto pr-1 sm:gap-3 md:grid-cols-2 lg:grid-cols-1 min-[1500px]:grid-cols-2 min-[2100px]:grid-cols-3">
+                {participants.map((participant) => renderVideoTile(participant))}
+              </div>
+
+              {meeting.users.length <= 1 ? (
+                <section className="mt-3 grid min-h-44 shrink-0 place-items-center rounded-lg border border-dashed border-white/12 bg-black/15 px-5 text-center">
+                  <div>
+                    <p className="text-base font-medium text-white">
+                      Esperando participantes
+                    </p>
+                    <p className="mt-2 text-sm text-slate-300">
+                      Comparte el enlace para recibir solicitudes de entrada.
+                    </p>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <span className="brand-skeleton h-16 rounded-md" />
+                      <span className="brand-skeleton h-16 rounded-md" />
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+            </>
+          )}
         </section>
 
         <section

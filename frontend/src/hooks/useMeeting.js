@@ -142,10 +142,12 @@ export function useMeeting() {
   const [endState, setEndState] = useState(null);
   const [ownerPromotion, setOwnerPromotion] = useState(null);
   const [whiteboardStrokes, setWhiteboardStrokes] = useState([]);
+  const [focusState, setFocusState] = useState(null);
 
   const socketRef = useRef(null);
   const sessionRef = useRef(null);
   const selfRef = useRef(null);
+  const focusRef = useRef(null);
   const usersRef = useRef([]);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
@@ -169,6 +171,11 @@ export function useMeeting() {
   function setCurrentSelf(nextSelf) {
     selfRef.current = nextSelf;
     setSelf(nextSelf);
+  }
+
+  function applyFocusState(nextFocus) {
+    focusRef.current = nextFocus ?? null;
+    setFocusState(nextFocus ?? null);
   }
 
   function patchRemotePeer(peerId, patch) {
@@ -211,6 +218,10 @@ export function useMeeting() {
     }
 
     const activeIds = new Set(nextUsers.map((user) => user.id));
+
+    if (focusRef.current?.targetId && !activeIds.has(focusRef.current.targetId)) {
+      applyFocusState(null);
+    }
 
     [...peersRef.current.keys()].forEach((peerId) => {
       if (!activeIds.has(peerId)) {
@@ -812,6 +823,7 @@ export function useMeeting() {
     setJoinRequests([]);
     setEndState(null);
     setWhiteboardStrokes(response.whiteboard ?? []);
+    applyFocusState(response.focus ?? null);
 
     if (response.self.role !== "owner" || sessionRef.current?.mode === "create") {
       setOwnerPromotion(null);
@@ -872,6 +884,7 @@ export function useMeeting() {
           setRoomId(partial.roomId);
           setWhiteboardStrokes(partial.whiteboard ?? []);
           setMessages(partial.messages ?? []);
+          applyFocusState(partial.focus ?? null);
 
           // Provisional: siempre role guest en reingreso parcial.
           // Luego se corrige con el flujo normal (request-join -> join-approved) cuando RAM permita.
@@ -1042,6 +1055,16 @@ export function useMeeting() {
     socket.on("chat-message", appendMessage);
     socket.on("whiteboard-stroke", appendWhiteboardStroke);
     socket.on("whiteboard-cleared", () => setWhiteboardStrokes([]));
+    socket.on("focus-changed", (focus) => {
+      if (!focus?.roomId || focus.roomId === sessionRef.current?.roomId) {
+        applyFocusState(focus);
+      }
+    });
+    socket.on("focus-disabled", (payload) => {
+      if (!payload?.roomId || payload.roomId === sessionRef.current?.roomId) {
+        applyFocusState(null);
+      }
+    });
     socket.on("recording-started", ({ by, roomId, startedAt }) => {
       if (roomId && roomId !== selfRef.current?.roomId) return;
       setRecordingActive(true);
@@ -1271,6 +1294,40 @@ export function useMeeting() {
     return response.ok;
   }
 
+  async function setMeetingFocus(targetId, mode = "participant", reason = "manual") {
+    if (!socketRef.current?.connected || !targetId) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "focus-set", {
+      mode,
+      reason,
+      targetId
+    });
+
+    if (!response.ok) {
+      setError(response.error);
+    }
+
+    return response.ok;
+  }
+
+  async function disableMeetingFocus(reason = "manual") {
+    if (!socketRef.current?.connected) {
+      return false;
+    }
+
+    const response = await emitWithAck(socketRef.current, "focus-disable", {
+      reason
+    });
+
+    if (!response.ok) {
+      setError(response.error);
+    }
+
+    return response.ok;
+  }
+
   async function respondToJoinRequest(request, accept) {
     if (!socketRef.current || !request?.socketId) {
       return false;
@@ -1394,6 +1451,10 @@ export function useMeeting() {
       return;
     }
 
+    const shouldDisableFocus =
+      focusRef.current?.mode === "screen" &&
+      focusRef.current?.targetId === selfRef.current?.id;
+
     screenStreamRef.current = null;
     screenStream.getVideoTracks().forEach((track) => {
       track.onended = null;
@@ -1404,12 +1465,20 @@ export function useMeeting() {
       "video",
       localStreamRef.current?.getVideoTracks()[0] ?? null
     );
+    await replaceOutgoingTrack(
+      "audio",
+      localStreamRef.current?.getAudioTracks()[0] ?? null
+    );
 
     setPreviewStream(localStreamRef.current);
     setMediaState((current) => ({
       ...current,
       screenSharing: false
     }));
+
+    if (shouldDisableFocus) {
+      await disableMeetingFocus("screen-share-ended");
+    }
   }
 
   async function toggleScreenShare() {
@@ -1470,6 +1539,10 @@ export function useMeeting() {
         ...current,
         screenSharing: true
       }));
+
+      if (selfRef.current?.id) {
+        await setMeetingFocus(selfRef.current.id, "screen", "screen-share");
+      }
     } catch (screenError) {
       realtimeLog("warn", "screen-share-failed", {
         message: screenError.message,
@@ -1559,6 +1632,7 @@ export function useMeeting() {
     clearSpeakingMeters();
     usersRef.current = [];
     setWhiteboardStrokes([]);
+    applyFocusState(null);
 
     if (!resetState) {
       return;
@@ -1598,6 +1672,7 @@ export function useMeeting() {
     connectionQuality,
     endState,
     error,
+    focusState,
     joinMeeting,
     joinRequests,
     localSpeaking,
@@ -1616,8 +1691,10 @@ export function useMeeting() {
     roomId,
     self,
     sendMessage,
+    setMeetingFocus,
     socketStatus,
     status,
+    disableMeetingFocus,
     moderateUser,
     toggleCamera,
     toggleMic,

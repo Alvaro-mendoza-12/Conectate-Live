@@ -2,6 +2,8 @@ import { Monitor, VideoOff, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 export function VideoTile({
+  className = "",
+  compact = false,
   connectionLabel = "",
   local = false,
   muted = false,
@@ -9,6 +11,7 @@ export function VideoTile({
   onToggleMute,
   screenSharing = false,
   speaking = false,
+  spotlight = false,
   stream
 }) {
   const videoRef = useRef(null);
@@ -28,17 +31,24 @@ export function VideoTile({
     }
   }, [stream]);
 
+  const sizeClass = spotlight
+    ? "h-full min-h-0"
+    : compact
+      ? "aspect-video min-h-0"
+      : "aspect-video min-h-[160px] sm:min-h-[180px]";
+  const videoFitClass = screenSharing ? "object-contain" : "object-cover";
+
   return (
     <article
-      className={`video-tile relative aspect-video min-h-[160px] overflow-hidden rounded-lg border bg-[#0c101a] transition sm:min-h-[180px] ${
+      className={`video-tile relative overflow-hidden rounded-lg border bg-[#0c101a] transition ${sizeClass} ${
         speaking
           ? "border-teal-200 shadow-[0_0_0_2px_rgba(94,234,212,0.28)]"
           : "border-white/10"
-      }`}
+      } ${className}`}
     >
       <video
         autoPlay
-        className={`h-full w-full object-cover ${local && !screenSharing ? "-scale-x-100" : ""}`}
+        className={`h-full w-full ${videoFitClass} ${local && !screenSharing ? "-scale-x-100" : ""}`}
         muted={local || muted}
         playsInline
         ref={videoRef}
@@ -69,7 +79,7 @@ export function VideoTile({
       </div>
 
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-3 pt-10">
-        <span className="truncate rounded-md bg-black/45 px-2 py-1 text-sm text-white">
+        <span className={`truncate rounded-md bg-black/45 px-2 py-1 text-white ${compact ? "text-xs" : "text-sm"}`}>
           {name}
         </span>
         <div className="flex shrink-0 items-center gap-2">

@@ -24,6 +24,22 @@ function publicRequest(request) {
   };
 }
 
+function publicFocus(focus) {
+  if (!focus) {
+    return null;
+  }
+
+  return {
+    by: focus.by,
+    mode: focus.mode,
+    reason: focus.reason,
+    roomId: focus.roomId,
+    startedAt: focus.startedAt,
+    targetId: focus.targetId,
+    targetName: focus.targetName
+  };
+}
+
 function createRoomState(roomId, ownerId) {
   const createdAt = new Date().toISOString();
 
@@ -31,6 +47,7 @@ function createRoomState(roomId, ownerId) {
     id: roomId,
     ownerId,
     createdAt,
+    focus: null,
     whiteboard: [],
     users: new Map(),
     requests: new Map()
@@ -184,10 +201,6 @@ export function getWhiteboardSnapshot(roomId) {
   return [...(rooms.get(roomId)?.whiteboard ?? [])];
 }
 
-// NOTE: Persistencia SQLite se integra en una siguiente iteracion (bloque 1).
-// Esta funcion seguirá sirviendo el snapshot actual en RAM.
-
-
 export function addWhiteboardStroke(roomId, stroke) {
   const room = rooms.get(roomId);
 
@@ -209,6 +222,37 @@ export function clearWhiteboard(roomId) {
 
   room.whiteboard.length = 0;
   return true;
+}
+
+export function getRoomFocus(roomId) {
+  return publicFocus(rooms.get(roomId)?.focus ?? null);
+}
+
+export function setRoomFocus(roomId, focus) {
+  const room = rooms.get(roomId);
+
+  if (!room) {
+    return null;
+  }
+
+  room.focus = {
+    ...focus,
+    roomId,
+    startedAt: new Date().toISOString()
+  };
+  return publicFocus(room.focus);
+}
+
+export function clearRoomFocus(roomId) {
+  const room = rooms.get(roomId);
+  const focus = room?.focus ?? null;
+
+  if (!room || !focus) {
+    return null;
+  }
+
+  room.focus = null;
+  return publicFocus(focus);
 }
 
 export function removeUser(socketId) {
@@ -260,6 +304,7 @@ export function closeRoom(roomId) {
   requests.forEach((request) => requestsBySocketId.delete(request.socketId));
   room.users.clear();
   room.requests.clear();
+  room.focus = null;
   room.whiteboard.length = 0;
   rooms.delete(roomId);
   rememberEndedRoom(roomId, "owner-closed");

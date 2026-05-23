@@ -2,6 +2,7 @@ const ROOM_MAX_LENGTH = 48;
 const USERNAME_MAX_LENGTH = 32;
 const MESSAGE_MAX_LENGTH = 800;
 const WHITEBOARD_WIDTH_MAX = 8;
+const FOCUS_REASONS = new Set(["manual", "screen-share", "screen-share-ended", "peer-left"]);
 
 export function normalizeRoomId(value) {
   return String(value ?? "")
@@ -24,6 +25,18 @@ export function normalizeMessage(value) {
     .trim()
     .replace(/\s+/g, " ")
     .slice(0, MESSAGE_MAX_LENGTH);
+}
+
+export function normalizeFocusMode(value) {
+  const mode = String(value ?? "participant").trim().toLowerCase();
+
+  return ["participant", "screen"].includes(mode) ? mode : "participant";
+}
+
+export function normalizeFocusReason(value) {
+  const reason = String(value ?? "manual").trim().toLowerCase();
+
+  return FOCUS_REASONS.has(reason) ? reason : "manual";
 }
 
 export function isSessionDescription(value) {
